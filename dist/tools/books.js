@@ -1,0 +1,284 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.BookTools = void 0;
+/**
+ * Book management tools for BookStack MCP Server
+ *
+ * Provides 6 tools for complete book lifecycle management:
+ * - List, create, read, update, delete, and export books
+ */
+class BookTools {
+    constructor(client, validator, logger) {
+        this.client = client;
+        this.validator = validator;
+        this.logger = logger;
+    }
+    /**
+     * Get all book tools
+     */
+    getTools() {
+        return [
+            this.createListBooksTools(),
+            this.createCreateBookTool(),
+            this.createReadBookTool(),
+            this.createUpdateBookTool(),
+            this.createDeleteBookTool(),
+            this.createExportBookTool(),
+        ];
+    }
+    /**
+     * List books tool
+     */
+    createListBooksTools() {
+        return {
+            name: 'bookstack_books_list',
+            description: 'List all books visible to the authenticated user with pagination and filtering options',
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    count: {
+                        type: 'integer',
+                        minimum: 1,
+                        maximum: 500,
+                        default: 20,
+                        description: 'Number of books to return',
+                    },
+                    offset: {
+                        type: 'integer',
+                        minimum: 0,
+                        default: 0,
+                        description: 'Number of books to skip',
+                    },
+                    sort: {
+                        type: 'string',
+                        enum: ['name', 'created_at', 'updated_at'],
+                        default: 'name',
+                        description: 'Sort field',
+                    },
+                    filter: {
+                        type: 'object',
+                        properties: {
+                            name: {
+                                type: 'string',
+                                description: 'Filter by book name (partial match)',
+                            },
+                            created_by: {
+                                type: 'integer',
+                                description: 'Filter by creator user ID',
+                            },
+                        },
+                        description: 'Optional filters to apply',
+                    },
+                },
+            },
+            handler: async (params) => {
+                this.logger.debug('Listing books', params);
+                const validatedParams = this.validator.validateParams(params, 'booksList');
+                return await this.client.listBooks(validatedParams);
+            },
+        };
+    }
+    /**
+     * Create book tool
+     */
+    createCreateBookTool() {
+        return {
+            name: 'bookstack_books_create',
+            description: 'Create a new book with name, description, tags, and template settings',
+            inputSchema: {
+                type: 'object',
+                required: ['name'],
+                properties: {
+                    name: {
+                        type: 'string',
+                        maxLength: 255,
+                        description: 'Book name (required)',
+                    },
+                    description: {
+                        type: 'string',
+                        maxLength: 1900,
+                        description: 'Book description in plain text',
+                    },
+                    description_html: {
+                        type: 'string',
+                        maxLength: 2000,
+                        description: 'Book description in HTML format',
+                    },
+                    tags: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                name: {
+                                    type: 'string',
+                                    description: 'Tag name',
+                                },
+                                value: {
+                                    type: 'string',
+                                    description: 'Tag value',
+                                },
+                            },
+                            required: ['name', 'value'],
+                        },
+                        description: 'Array of tags to assign to the book',
+                    },
+                    default_template_id: {
+                        type: 'integer',
+                        description: 'ID of default page template for new pages in this book',
+                    },
+                },
+            },
+            handler: async (params) => {
+                this.logger.info('Creating book', { name: params.name });
+                const validatedParams = this.validator.validateParams(params, 'bookCreate');
+                return await this.client.createBook(validatedParams);
+            },
+        };
+    }
+    /**
+     * Read book tool
+     */
+    createReadBookTool() {
+        return {
+            name: 'bookstack_books_read',
+            description: 'Get details of a specific book including its complete content hierarchy (chapters and pages)',
+            inputSchema: {
+                type: 'object',
+                required: ['id'],
+                properties: {
+                    id: {
+                        type: 'integer',
+                        description: 'Book ID to retrieve',
+                    },
+                },
+            },
+            handler: async (params) => {
+                const id = this.validator.validateId(params.id);
+                this.logger.debug('Reading book', { id });
+                return await this.client.getBook(id);
+            },
+        };
+    }
+    /**
+     * Update book tool
+     */
+    createUpdateBookTool() {
+        return {
+            name: 'bookstack_books_update',
+            description: 'Update a book\'s details including name, description, tags, and template settings',
+            inputSchema: {
+                type: 'object',
+                required: ['id'],
+                properties: {
+                    id: {
+                        type: 'integer',
+                        description: 'Book ID to update',
+                    },
+                    name: {
+                        type: 'string',
+                        minLength: 1,
+                        maxLength: 255,
+                        description: 'New book name',
+                    },
+                    description: {
+                        type: 'string',
+                        maxLength: 1900,
+                        description: 'New book description in plain text',
+                    },
+                    description_html: {
+                        type: 'string',
+                        maxLength: 2000,
+                        description: 'New book description in HTML format',
+                    },
+                    tags: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                name: {
+                                    type: 'string',
+                                    description: 'Tag name',
+                                },
+                                value: {
+                                    type: 'string',
+                                    description: 'Tag value',
+                                },
+                            },
+                            required: ['name', 'value'],
+                        },
+                        description: 'New tags to assign to the book (replaces existing tags)',
+                    },
+                    default_template_id: {
+                        type: 'integer',
+                        description: 'New default page template ID',
+                    },
+                },
+            },
+            handler: async (params) => {
+                const id = this.validator.validateId(params.id);
+                this.logger.info('Updating book', { id, fields: Object.keys(params).filter(k => k !== 'id') });
+                const { id: _, ...updateParams } = params;
+                const validatedParams = this.validator.validateParams(updateParams, 'bookUpdate');
+                return await this.client.updateBook(id, validatedParams);
+            },
+        };
+    }
+    /**
+     * Delete book tool
+     */
+    createDeleteBookTool() {
+        return {
+            name: 'bookstack_books_delete',
+            description: 'Delete a book (moves to recycle bin where it can be restored)',
+            inputSchema: {
+                type: 'object',
+                required: ['id'],
+                properties: {
+                    id: {
+                        type: 'integer',
+                        description: 'Book ID to delete',
+                    },
+                },
+            },
+            handler: async (params) => {
+                const id = this.validator.validateId(params.id);
+                this.logger.warn('Deleting book', { id });
+                await this.client.deleteBook(id);
+                return { success: true, message: `Book ${id} deleted successfully` };
+            },
+        };
+    }
+    /**
+     * Export book tool
+     */
+    createExportBookTool() {
+        return {
+            name: 'bookstack_books_export',
+            description: 'Export a book in various formats (HTML, PDF, plain text, or Markdown)',
+            inputSchema: {
+                type: 'object',
+                required: ['id', 'format'],
+                properties: {
+                    id: {
+                        type: 'integer',
+                        description: 'Book ID to export',
+                    },
+                    format: {
+                        type: 'string',
+                        enum: ['html', 'pdf', 'plaintext', 'markdown'],
+                        description: 'Export format',
+                    },
+                },
+            },
+            handler: async (params) => {
+                const id = this.validator.validateId(params.id);
+                const { format } = params;
+                this.logger.info('Exporting book', { id, format });
+                return await this.client.exportBook(id, format);
+            },
+        };
+    }
+}
+exports.BookTools = BookTools;
+exports.default = BookTools;
+//# sourceMappingURL=books.js.map

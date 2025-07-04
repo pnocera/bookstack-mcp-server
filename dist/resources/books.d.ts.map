@@ -1,0 +1,1 @@
+{"version":3,"file":"books.d.ts","sourceRoot":"","sources":["../../src/resources/books.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,eAAe,EAAE,MAAM,eAAe,CAAC;AAChD,OAAO,EAAE,MAAM,EAAE,MAAM,iBAAiB,CAAC;AACzC,OAAO,EAAE,WAAW,EAAE,MAAM,UAAU,CAAC;AAEvC,qBAAa,aAAa;IAEtB,OAAO,CAAC,MAAM;IACd,OAAO,CAAC,MAAM;gBADN,MAAM,EAAE,eAAe,EACvB,MAAM,EAAE,MAAM;IAGxB,YAAY,IAAI,WAAW,EAAE;CA2B9B"}
