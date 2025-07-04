@@ -4,7 +4,7 @@ import { z } from 'zod';
  */
 export declare const ConfigSchema: z.ZodObject<{
     bookstack: z.ZodObject<{
-        baseUrl: z.ZodString;
+        baseUrl: z.ZodDefault<z.ZodString>;
         apiToken: z.ZodString;
         timeout: z.ZodDefault<z.ZodNumber>;
     }, "strip", z.ZodTypeAny, {
@@ -12,8 +12,8 @@ export declare const ConfigSchema: z.ZodObject<{
         apiToken: string;
         timeout: number;
     }, {
-        baseUrl: string;
         apiToken: string;
+        baseUrl?: string | undefined;
         timeout?: number | undefined;
     }>;
     server: z.ZodObject<{
@@ -138,8 +138,8 @@ export declare const ConfigSchema: z.ZodObject<{
         strictMode?: boolean | undefined;
     };
     bookstack: {
-        baseUrl: string;
         apiToken: string;
+        baseUrl?: string | undefined;
         timeout?: number | undefined;
     };
     server: {

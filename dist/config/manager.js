@@ -11,8 +11,8 @@ const logger_1 = require("../utils/logger");
  */
 exports.ConfigSchema = zod_1.z.object({
     bookstack: zod_1.z.object({
-        baseUrl: zod_1.z.string().url('Invalid BookStack base URL'),
-        apiToken: zod_1.z.string().min(1, 'BookStack API token is required'),
+        baseUrl: zod_1.z.string().url('Invalid BookStack base URL').default('http://localhost:8080/api'),
+        apiToken: zod_1.z.string().min(1, 'BookStack API token is required - set BOOKSTACK_API_TOKEN environment variable'),
         timeout: zod_1.z.number().positive().default(30000),
     }),
     server: zod_1.z.object({

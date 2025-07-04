@@ -10,8 +10,8 @@ dotenvConfig();
  */
 export const ConfigSchema = z.object({
   bookstack: z.object({
-    baseUrl: z.string().url('Invalid BookStack base URL'),
-    apiToken: z.string().min(1, 'BookStack API token is required'),
+    baseUrl: z.string().url('Invalid BookStack base URL').default('http://localhost:8080/api'),
+    apiToken: z.string().min(1, 'BookStack API token is required - set BOOKSTACK_API_TOKEN environment variable'),
     timeout: z.number().positive().default(30000),
   }),
   server: z.object({
