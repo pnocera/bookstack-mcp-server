@@ -56,9 +56,10 @@ free -h         # Linux/macOS
 ## 🏠 BookStack Server Requirements
 
 ### BookStack Version
-- **Minimum**: BookStack v21.08+
-- **Recommended**: BookStack v23.05+ (latest stable)
+- **Recommended**: Latest stable version of BookStack
 - **API Version**: v1 (current)
+
+> ⚠️ **Note**: This server uses modern BookStack API features including the system endpoint for health checks. Please ensure you're running a recent version of BookStack.
 
 ### BookStack Configuration
 Your BookStack instance must have:
@@ -70,11 +71,10 @@ Your BookStack instance must have:
    API_DEFAULT_ITEM_COUNT=100
    ```
 
-2. **CORS Configuration** (if cross-origin access needed)
+2. **API Rate Limits** (optional - adjust if needed)
    ```php
-   // In BookStack .env file
-   ALLOWED_IFRAME_HOSTS=*
-   ALLOWED_IFRAME_SOURCES=*
+   // In BookStack .env file - adjust based on your usage
+   API_REQUESTS_PER_MIN=180
    ```
 
 3. **User Permissions**
@@ -83,13 +83,25 @@ Your BookStack instance must have:
    - Minimum: View permissions for content areas
 
 ### API Token Setup
+
 1. **Log into BookStack** as admin or privileged user
 2. **Navigate to**: Profile → API Tokens
 3. **Create New Token**:
    - Name: `mcp-server-token`
    - Description: `Token for MCP server access`
    - Expiry: Set appropriate expiry (optional)
-4. **Copy Token**: Save securely for configuration
+4. **Combine Token Parts**: BookStack provides a Token ID and Token Secret
+   
+   **Important**: You need to combine these as `{token_id}:{token_secret}`
+   
+   Example:
+   - Token ID: `AbCdEf123456`
+   - Token Secret: `xyz789secretkey`
+   - **Final Token**: `AbCdEf123456:xyz789secretkey`
+
+5. **Save Token**: Store the combined token securely for configuration
+
+> 💡 **Token Format**: The API token must be in the format `{token_id}:{token_secret}` as shown in BookStack's API documentation.
 
 ## 📦 Installation Methods
 
@@ -234,7 +246,8 @@ DEBUG=false
    - Login as service account
    - Go to Profile → API Tokens
    - Create token with descriptive name
-   - Copy token immediately
+   - **Important**: Combine the Token ID and Token Secret as `{token_id}:{token_secret}`
+   - Store the combined token securely
 
 ### Token Security
 - **Storage**: Use environment variables or secure vault

@@ -26,7 +26,7 @@ npx bookstack-mcp-server
 # For Claude Code
 claude mcp add bookstack npx bookstack-mcp-server \
   --env BOOKSTACK_BASE_URL=https://your-bookstack.com/api \
-  --env BOOKSTACK_API_TOKEN=your-token-here
+  --env BOOKSTACK_API_TOKEN=token_id:token_secret
 ```
 
 ### Configuration
@@ -35,8 +35,10 @@ Set these environment variables:
 
 ```bash
 export BOOKSTACK_BASE_URL="https://your-bookstack.com/api"
-export BOOKSTACK_API_TOKEN="your-api-token-here"
+export BOOKSTACK_API_TOKEN="token_id:token_secret"
 ```
+
+> 💡 **Token Format**: Combine your BookStack Token ID and Token Secret as `token_id:token_secret`
 
 > 💡 Need detailed setup? See the complete [Setup Guide](docs/setup-guide.md)
 
@@ -103,6 +105,10 @@ npm run dev
 ## 📝 License
 
 MIT License - see [LICENSE](LICENSE) file for details.
+
+## 🌟 Community
+
+This project is part of the BookStack ecosystem! Check out other API-based tools and scripts in the [BookStack API Scripts](https://codeberg.org/bookstack/api-scripts) repository.
 
 ## 🆘 Support
 
