@@ -1,329 +1,115 @@
 # BookStack MCP Server
 
-A comprehensive Model Context Protocol (MCP) server providing full access to BookStack's knowledge management capabilities. This server exposes all 47 BookStack API endpoints as MCP tools, enabling seamless integration with Claude and other MCP-compatible AI assistants.
+Connect BookStack to Claude and other AI assistants through the Model Context Protocol (MCP). This server provides complete access to your BookStack knowledge base with 47+ tools covering all API endpoints.
 
-## 🚀 Features
+## ✨ What You Get
 
-### Complete BookStack Integration
-- **47 MCP Tools** covering all BookStack API endpoints
-- **Resource Access** for dynamic content retrieval
-- **Real-time Search** across all content types
-- **Export Functionality** in multiple formats (HTML, PDF, Markdown, Plain Text)
-- **Content Management** for books, pages, chapters, shelves, users, and roles
+- **Complete BookStack Integration** - Access all your books, pages, chapters, and content
+- **47+ MCP Tools** - Full CRUD operations for every BookStack feature
+- **Search & Export** - Find content and export in multiple formats
+- **User Management** - Handle users, roles, and permissions
+- **Production Ready** - Rate limiting, validation, error handling, and logging
 
-### Advanced Capabilities
-- **Rate Limiting** with configurable limits and burst protection
-- **Comprehensive Validation** using Zod schemas
-- **Error Handling** with retry logic and proper error mapping
-- **Context7 Integration** for enhanced documentation
-- **Health Monitoring** with detailed system checks
-- **Logging** with configurable levels and formats
+## 🚀 Quick Start
 
-### Developer Experience
-- **TypeScript Support** with complete type definitions
-- **Hot Reloading** during development
-- **Comprehensive Testing** with unit and integration tests
-- **Docker Support** for easy deployment
-- **Extensive Documentation** with examples and guides
+```bash
+# Install globally
+npm install -g bookstack-mcp-server
 
-## 📦 Installation
+# Or run directly
+npx bookstack-mcp-server
+```
 
-### Prerequisites
-- Node.js 18+ and npm 9+
-- BookStack instance with API access
-- API token from BookStack
+### Add to Claude
 
-### Quick Start
-
-1. **Clone and Install**
-   ```bash
-   git clone <repository-url>
-   cd bookstack-mcp-server
-   npm install
-   ```
-
-2. **Configure Environment**
-   ```bash
-   cp .env.example .env
-   # Edit .env with your BookStack details
-   ```
-
-3. **Build and Start**
-   ```bash
-   npm run build
-   npm start
-   ```
+```bash
+# For Claude Code
+claude mcp add bookstack npx bookstack-mcp-server \
+  --env BOOKSTACK_BASE_URL=https://your-bookstack.com/api \
+  --env BOOKSTACK_API_TOKEN=your-token-here
+```
 
 ### Configuration
 
-Create a `.env` file with your BookStack configuration:
+Set these environment variables:
 
-```env
-# BookStack API Configuration
-BOOKSTACK_BASE_URL=http://localhost:8080/api
-BOOKSTACK_API_TOKEN=your-api-token-here
-BOOKSTACK_TIMEOUT=30000
-
-# Server Configuration
-LOG_LEVEL=info
-VALIDATION_ENABLED=true
-CONTEXT7_ENABLED=true
-
-# Rate Limiting
-RATE_LIMIT_REQUESTS_PER_MINUTE=60
-RATE_LIMIT_BURST_LIMIT=10
+```bash
+export BOOKSTACK_BASE_URL="https://your-bookstack.com/api"
+export BOOKSTACK_API_TOKEN="your-api-token-here"
 ```
+
+> 💡 Need detailed setup? See the complete [Setup Guide](docs/setup-guide.md)
 
 ## 🛠️ Available Tools
 
-### Books (6 tools)
-- `bookstack_books_list` - List all books with filtering
-- `bookstack_books_create` - Create new books
-- `bookstack_books_read` - Get book details with contents
-- `bookstack_books_update` - Update book information
-- `bookstack_books_delete` - Delete books (to recycle bin)
-- `bookstack_books_export` - Export books in multiple formats
+**47+ tools across 13 categories:**
 
-### Pages (6 tools)
-- `bookstack_pages_list` - List all pages with filtering
-- `bookstack_pages_create` - Create new pages with HTML/Markdown
-- `bookstack_pages_read` - Get page details with content
-- `bookstack_pages_update` - Update page content and metadata
-- `bookstack_pages_delete` - Delete pages (to recycle bin)
-- `bookstack_pages_export` - Export pages in multiple formats
+- **📚 Books** - Create, read, update, delete, and export books
+- **📄 Pages** - Manage pages with HTML/Markdown content
+- **📑 Chapters** - Organize pages within books
+- **📚 Shelves** - Group books into collections
+- **👥 Users & Roles** - Complete user management
+- **🔍 Search** - Advanced search across all content
+- **📎 Attachments & Images** - File management
+- **🔐 Permissions** - Content access control
+- **🗑️ Recycle Bin** - Deleted item recovery
+- **📊 Audit Log** - Activity tracking
+- **⚙️ System Info** - Instance health and information
 
-### Chapters (6 tools)
-- `bookstack_chapters_list` - List all chapters
-- `bookstack_chapters_create` - Create new chapters
-- `bookstack_chapters_read` - Get chapter details with pages
-- `bookstack_chapters_update` - Update chapter information
-- `bookstack_chapters_delete` - Delete chapters
-- `bookstack_chapters_export` - Export chapters
+> 📖 See the complete [Tools Overview](docs/tools-overview.md) for detailed documentation
 
-### Additional Tools
-- **Search** - Advanced search across all content
-- **Users & Roles** - Complete user management
-- **Attachments & Images** - File management
-- **Permissions** - Content access control
-- **System Info** - Instance information and health
-- **Recycle Bin** - Deleted item recovery
+## 📚 Documentation
 
-## 🔗 Claude Code Integration
+Find comprehensive guides in the `docs/` folder:
 
-Add to your Claude Code MCP configuration:
+- **[Setup Guide](docs/setup-guide.md)** - Complete installation and configuration
+- **[API Reference](docs/api-reference.md)** - All endpoints with examples
+- **[Tools Overview](docs/tools-overview.md)** - Every tool explained
+- **[Resources Guide](docs/resources-guide.md)** - Resource access patterns
+- **[Examples & Workflows](docs/examples-and-workflows.md)** - Real-world usage
 
-```json
-{
-  "mcpServers": {
-    "bookstack": {
-      "command": "npx",
-      "args": ["bookstack-mcp-server"],
-      "env": {
-        "BOOKSTACK_BASE_URL": "http://localhost:8080/api",
-        "BOOKSTACK_API_TOKEN": "your-token"
-      }
-    }
-  }
-}
-```
+## ⚡ Quick Examples
 
-## 📚 Usage Examples
-
-### List Books
+**List all books:**
 ```javascript
-// Use the bookstack_books_list tool
-{
-  "count": 10,
-  "sort": "updated_at",
-  "filter": {
-    "name": "documentation"
-  }
-}
+bookstack_books_list({ count: 10, sort: "updated_at" })
 ```
 
-### Create a Page
+**Create a new page:**
 ```javascript
-// Use the bookstack_pages_create tool
-{
-  "name": "API Documentation",
-  "book_id": 1,
-  "html": "<h1>API Guide</h1><p>Complete API documentation...</p>",
-  "tags": [
-    {"name": "category", "value": "documentation"},
-    {"name": "status", "value": "draft"}
-  ]
-}
+bookstack_pages_create({
+  name: "Getting Started",
+  book_id: 1,
+  markdown: "# Welcome\nYour content here..."
+})
 ```
 
-### Search Content
+**Search for content:**
 ```javascript
-// Use the bookstack_search tool
-{
-  "query": "API documentation [page] tag:category=api",
-  "count": 20
-}
+bookstack_search({ query: "API documentation", count: 20 })
 ```
 
-## 🧪 Development
-
-### Scripts
-```bash
-npm run dev          # Start development server with hot reload
-npm run build        # Build TypeScript to JavaScript
-npm run test         # Run test suite
-npm run test:watch   # Run tests in watch mode
-npm run lint         # Lint TypeScript code
-npm run format       # Format code with Prettier
-```
-
-### Project Structure
-```
-src/
-├── server.ts           # Main MCP server
-├── api/
-│   └── client.ts       # BookStack API client
-├── tools/              # MCP tool implementations
-│   ├── books.ts
-│   ├── pages.ts
-│   └── ...
-├── resources/          # MCP resource handlers
-├── utils/              # Utilities (logging, errors, rate limiting)
-├── validation/         # Zod schemas and validation
-├── config/             # Configuration management
-└── context7/           # Context7 integration
-```
-
-### Testing
-```bash
-# Run all tests
-npm test
-
-# Run specific test file
-npm test books.test.ts
-
-# Run with coverage
-npm run test:coverage
-```
-
-## 🐳 Docker Deployment
-
-### Build Image
-```bash
-docker build -t bookstack-mcp-server .
-```
-
-### Run Container
-```bash
-docker run -p 3000:3000 \
-  -e BOOKSTACK_BASE_URL=http://bookstack:8080/api \
-  -e BOOKSTACK_API_TOKEN=your-token \
-  bookstack-mcp-server
-```
-
-### Docker Compose
-```yaml
-version: '3.8'
-services:
-  bookstack-mcp:
-    build: .
-    ports:
-      - "3000:3000"
-    environment:
-      BOOKSTACK_BASE_URL: http://bookstack:8080/api
-      BOOKSTACK_API_TOKEN: your-token
-    depends_on:
-      - bookstack
-```
-
-## 🔍 Monitoring & Health Checks
-
-### Health Endpoint
-The server provides health check functionality:
+## 🛠️ Development
 
 ```bash
-curl http://localhost:3000/health
+git clone <repository-url>
+cd bookstack-mcp-server
+npm install
+npm run dev
 ```
 
-Response:
-```json
-{
-  "status": "healthy",
-  "checks": [
-    {"name": "bookstack_connection", "healthy": true},
-    {"name": "tools_loaded", "healthy": true, "message": "47 tools loaded"},
-    {"name": "resources_loaded", "healthy": true, "message": "12 resources loaded"}
-  ]
-}
-```
-
-### Metrics
-- Request/response times
-- Error rates
-- Rate limit status
-- Memory usage
-- Tool usage statistics
-
-## 🛡️ Security
-
-### API Token Management
-- Secure token storage in environment variables
-- Token validation on startup
-- Automatic token rotation support (when available)
-
-### Rate Limiting
-- Configurable request limits (default: 60/minute)
-- Burst protection (default: 10 concurrent)
-- Automatic backoff on rate limit hits
-
-### Input Validation
-- Comprehensive Zod schema validation
-- SQL injection prevention
-- XSS protection for HTML content
-- File upload validation
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-### Development Guidelines
-- Follow TypeScript best practices
-- Add tests for new features
-- Update documentation
-- Follow conventional commit messages
-- Ensure all tests pass
+> 🔧 See the [Setup Guide](docs/setup-guide.md) for development, Docker, and production deployment
 
 ## 📝 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT License - see [LICENSE](LICENSE) file for details.
 
 ## 🆘 Support
 
-- **Documentation**: [Implementation Guide](mcp-server-implementation-guide.md)
-- **Issues**: [GitHub Issues](https://github.com/bookstack/mcp-server/issues)
-- **Examples**: [Example Usage](examples/)
-
-## 🎯 Roadmap
-
-### Planned Features
-- [ ] Real-time notifications via WebSockets
-- [ ] Bulk operations for content management
-- [ ] Advanced caching strategies
-- [ ] Metrics dashboard
-- [ ] Plugin system for custom tools
-- [ ] Multi-instance BookStack support
-
-### Performance Goals
-- 99.9% uptime
-- <100ms average response time
-- Support for 1000+ concurrent connections
-- Memory usage under 512MB
+- **📚 Documentation**: Complete guides in the [docs/](docs/) folder
+- **🐛 Issues**: [GitHub Issues](https://github.com/pnocera/bookstack-mcp-server/issues)
+- **💬 Discussions**: [GitHub Discussions](https://github.com/pnocera/bookstack-mcp-server/discussions)
 
 ---
 
 **Built with ❤️ for the BookStack community**
-
-For more information about BookStack, visit [bookstackapp.com](https://www.bookstackapp.com)
