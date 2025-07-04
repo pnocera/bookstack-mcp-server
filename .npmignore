@@ -1,0 +1,73 @@
+# Source files (only ship compiled JS)
+src/
+tsconfig.json
+*.ts
+!*.d.ts
+
+# Development files
+tests/
+coverage/
+.nyc_output/
+
+# Development dependencies and configs
+.env
+.env.*
+!.env.example
+.eslintrc*
+.prettierrc*
+jest.config*
+nodemon.json
+
+# IDE and OS files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Git files
+.git/
+.gitignore
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+
+# Dependency directories
+node_modules/
+
+# Optional npm cache directory
+.npm
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# Claude and development specific files
+CLAUDE.md
+claude-swarm.*
+ruv-swarm*
+
+# Docker files (optional - include if you want Docker support)
+Dockerfile
+.dockerignore
+
+# Misc
+*.bak
+*.tmp
