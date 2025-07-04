@@ -4,8 +4,9 @@
   "description": "MCP server providing comprehensive access to BookStack knowledge management system",
   "main": "dist/server.js",
   "scripts": {
-    "build": "tsc",
+    "build": "npm run clean && tsc",
     "start": "node dist/server.js",
+    "prepublishOnly": "npm run build",
     "dev": "ts-node src/server.ts",
     "watch": "nodemon --exec ts-node src/server.ts",
     "test": "jest",
@@ -68,6 +69,7 @@
   "bin": {
     "bookstack-mcp-server": "./dist/server.js"
   },
+  "preferGlobal": true,
   "files": [
     "dist/**/*",
     "README.md",

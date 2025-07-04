@@ -32,7 +32,8 @@ class BookTools {
     createListBooksTools() {
         return {
             name: 'bookstack_books_list',
-            description: 'List all books visible to the authenticated user with pagination and filtering options',
+            description: 'List all books visible to the authenticated user with pagination and filtering options. Books are the top-level containers in BookStack hierarchy.',
+            category: 'books',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -71,6 +72,33 @@ class BookTools {
                     },
                 },
             },
+            examples: [
+                {
+                    description: 'List first 10 books',
+                    input: { count: 10 },
+                    expected_output: 'Array of book objects with metadata',
+                    use_case: 'Getting overview of available documentation',
+                },
+                {
+                    description: 'Search for API-related books',
+                    input: { filter: { name: 'api' } },
+                    expected_output: 'Books containing "api" in their name',
+                    use_case: 'Finding specific documentation topics',
+                },
+            ],
+            usage_patterns: [
+                'Call first to understand available documentation structure',
+                'Use filtering to find specific topic areas',
+                'Combine with pagination for large book collections',
+            ],
+            related_tools: ['bookstack_books_read', 'bookstack_search_books'],
+            error_codes: [
+                {
+                    code: 'UNAUTHORIZED',
+                    description: 'Authentication failed or insufficient permissions',
+                    recovery_suggestion: 'Verify API token and permissions',
+                },
+            ],
             handler: async (params) => {
                 this.logger.debug('Listing books', params);
                 const validatedParams = this.validator.validateParams(params, 'booksList');

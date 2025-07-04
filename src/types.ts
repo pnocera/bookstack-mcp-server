@@ -470,7 +470,7 @@ export interface UpdateContentPermissionsParams {
   }[];
 }
 
-// Tool Definition Types
+// Enhanced Tool Definition Types
 export interface MCPTool {
   name: string;
   description: string;
@@ -480,15 +480,46 @@ export interface MCPTool {
     required?: string[];
   };
   handler: (params: any) => Promise<any>;
+  // Enhanced self-description fields
+  category?: string;
+  examples?: ToolExample[];
+  usage_patterns?: string[];
+  related_tools?: string[];
+  error_codes?: ToolErrorCode[];
 }
 
-// Resource Definition Types
+export interface ToolExample {
+  description: string;
+  input: Record<string, any>;
+  expected_output?: string;
+  use_case: string;
+}
+
+export interface ToolErrorCode {
+  code: string;
+  description: string;
+  recovery_suggestion: string;
+}
+
+// Enhanced Resource Definition Types
 export interface MCPResource {
   uri: string;
   name: string;
   description: string;
   mimeType: string;
   handler: (uri: string) => Promise<any>;
+  // Enhanced self-description fields
+  schema?: Record<string, any>;
+  examples?: ResourceExample[];
+  access_patterns?: string[];
+  dependencies?: string[];
+}
+
+export interface ResourceExample {
+  uri: string;
+  description: string;
+  expected_format: string;
+  use_case: string;
 }
 
 // Export format types
@@ -581,4 +612,89 @@ export interface BookStackAPIClient {
 
   // System
   getSystemInfo(): Promise<SystemInfo>;
+}
+// Server Information Types for MCP Self-Description
+export interface MCPServerInfo {
+  name: string;
+  version: string;
+  description: string;
+  capabilities: MCPServerCapabilities;
+  tool_categories: ToolCategory[];
+  resource_types: ResourceType[];
+  usage_examples: ServerUsageExample[];
+  supported_bookstack_versions: string[];
+  api_documentation: string;
+  error_handling: ErrorHandlingInfo;
+}
+
+export interface MCPServerCapabilities {
+  tools: {
+    total: number;
+    categories: string[];
+    supports_batch_operations: boolean;
+    supports_transactions: boolean;
+  };
+  resources: {
+    total: number;
+    types: string[];
+    supports_streaming: boolean;
+    supports_caching: boolean;
+  };
+  authentication: {
+    required: boolean;
+    methods: string[];
+  };
+  rate_limiting: {
+    enabled: boolean;
+    requests_per_minute?: number;
+    burst_limit?: number;
+  };
+  validation: {
+    enabled: boolean;
+    strict_mode: boolean;
+  };
+}
+
+export interface ToolCategory {
+  name: string;
+  description: string;
+  tools: string[];
+  use_cases: string[];
+}
+
+export interface ResourceType {
+  type: string;
+  description: string;
+  mime_types: string[];
+  uri_patterns: string[];
+  examples: string[];
+}
+
+export interface ServerUsageExample {
+  title: string;
+  description: string;
+  workflow: WorkflowStep[];
+  expected_outcome: string;
+}
+
+export interface WorkflowStep {
+  step: number;
+  action: string;
+  tool_or_resource: string;
+  parameters?: Record<string, any>;
+  description: string;
+}
+
+export interface ErrorHandlingInfo {
+  common_errors: CommonError[];
+  debugging_tips: string[];
+  support_contact: string;
+}
+
+export interface CommonError {
+  code: string;
+  message: string;
+  causes: string[];
+  solutions: string[];
+  prevention: string;
 }
