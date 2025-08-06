@@ -530,59 +530,6 @@ docker run -d \
   bookstack-mcp-server
 ```
 
-### Docker Compose
-Create `docker-compose.yml`:
-
-```yaml
-version: '3.8'
-
-services:
-  bookstack-mcp:
-    build: .
-    ports:
-      - "3000:3000"
-    environment:
-      - NODE_ENV=production
-      - BOOKSTACK_BASE_URL=http://bookstack:8080/api
-      - BOOKSTACK_API_TOKEN=${BOOKSTACK_API_TOKEN}
-      - LOG_LEVEL=info
-    volumes:
-      - ./logs:/app/logs
-    depends_on:
-      - bookstack
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  bookstack:
-    image: bookstackapp/bookstack:latest
-    environment:
-      - APP_URL=http://localhost:8080
-      - DB_HOST=bookstack_db
-      - DB_DATABASE=bookstack
-      - DB_USERNAME=bookstack
-      - DB_PASSWORD=secret
-    depends_on:
-      - bookstack_db
-    ports:
-      - "8080:80"
-
-  bookstack_db:
-    image: mysql:8.0
-    environment:
-      - MYSQL_ROOT_PASSWORD=secret
-      - MYSQL_DATABASE=bookstack
-      - MYSQL_USER=bookstack
-      - MYSQL_PASSWORD=secret
-    volumes:
-      - bookstack_db_data:/var/lib/mysql
-
-volumes:
-  bookstack_db_data:
-```
 
 ## 🔍 Troubleshooting
 
