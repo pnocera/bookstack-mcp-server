@@ -115,16 +115,28 @@ export class PermissionTools {
             properties: {
               inheriting: {
                 type: 'boolean',
-                description: 'Whether to inherit permissions from parent',
+                description: 'Whether to inherit permissions from parent. When false, view/create/update/delete are required.',
               },
-              restricted: {
+              view: {
                 type: 'boolean',
-                description: 'Whether content has custom restrictions',
+                description: 'Fallback view access (required when inheriting is false)',
+              },
+              create: {
+                type: 'boolean',
+                description: 'Fallback create access (required when inheriting is false)',
+              },
+              update: {
+                type: 'boolean',
+                description: 'Fallback update access (required when inheriting is false)',
+              },
+              delete: {
+                type: 'boolean',
+                description: 'Fallback delete access (required when inheriting is false)',
               },
             },
             description: 'Fallback permission settings',
           },
-          permissions: {
+          role_permissions: {
             type: 'array',
             items: {
               type: 'object',
@@ -132,10 +144,6 @@ export class PermissionTools {
                 role_id: {
                   type: 'integer',
                   description: 'Role ID to grant permissions to',
-                },
-                user_id: {
-                  type: 'integer',
-                  description: 'User ID to grant permissions to (alternative to role_id)',
                 },
                 view: {
                   type: 'boolean',
@@ -155,7 +163,7 @@ export class PermissionTools {
                 },
               },
             },
-            description: 'Array of specific permission grants',
+            description: 'Array of role-specific permission grants',
           },
         },
       },
