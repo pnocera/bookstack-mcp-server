@@ -32,8 +32,8 @@ export class RecycleBinTools {
    */
   private createListRecycleBinTool(): MCPTool {
     return {
-      name: 'bookstack_recycle_bin_list',
-      description: 'List all deleted items in the recycle bin with pagination options',
+      name: 'bookstack_recyclebin_list',
+      description: 'List items currently in the recycle bin. These items can be restored or permanently deleted.',
       category: 'recyclebin',
       inputSchema: {
         type: 'object',
@@ -43,42 +43,34 @@ export class RecycleBinTools {
             minimum: 1,
             maximum: 500,
             default: 20,
-            description: 'Number of deleted items to return',
+            description: 'Number of items to return.',
           },
           offset: {
             type: 'integer',
             minimum: 0,
             default: 0,
-            description: 'Number of deleted items to skip',
+            description: 'Pagination offset.',
           },
         },
       },
       examples: [
         {
-          description: 'List first 10 deleted items',
+          description: 'Check recycle bin',
           input: { count: 10 },
-          expected_output: 'Array of deleted item objects with deletion metadata',
-          use_case: 'Reviewing recently deleted content',
-        },
-        {
-          description: 'List all deleted items',
-          input: { count: 500 },
-          expected_output: 'All deleted items in the recycle bin',
-          use_case: 'Complete audit of deleted content',
-        },
+          expected_output: 'List of deleted items',
+          use_case: 'Finding accidental deletions',
+        }
       ],
       usage_patterns: [
-        'Use before restoring deleted content',
-        'Regular cleanup of old deleted items',
-        'Audit trail for deleted content',
+        'Use to find the `deletion_id` required for restoration',
       ],
-      related_tools: ['bookstack_recycle_bin_restore', 'bookstack_recycle_bin_delete_permanently'],
+      related_tools: ['bookstack_recyclebin_restore'],
       error_codes: [
         {
           code: 'UNAUTHORIZED',
-          description: 'Authentication failed or insufficient permissions',
-          recovery_suggestion: 'Verify API token and admin permissions',
-        },
+          description: 'Insufficient permissions',
+          recovery_suggestion: 'Requires admin privileges',
+        }
       ],
       handler: async (params: any) => {
         this.logger.debug('Listing recycle bin items', params);
@@ -93,46 +85,39 @@ export class RecycleBinTools {
    */
   private createRestoreFromRecycleBinTool(): MCPTool {
     return {
-      name: 'bookstack_recycle_bin_restore',
-      description: 'Restore a deleted item from the recycle bin back to its original location',
+      name: 'bookstack_recyclebin_restore',
+      description: 'Restore a deleted item from the recycle bin. Returns the item to its previous location.',
       inputSchema: {
         type: 'object',
-        required: ['deletion_id'],
+        required: ['id'],
         properties: {
-          deletion_id: {
+          id: {
             type: 'integer',
-            description: 'Deletion ID of the item to restore (from recycle bin list)',
+            description: 'The `deletion_id` of the item to restore (Found via `bookstack_recyclebin_list`, NOT the original entity ID).',
           },
         },
       },
       examples: [
         {
-          description: 'Restore a deleted page',
-          input: { deletion_id: 42 },
-          expected_output: 'Confirmation of successful restoration',
-          use_case: 'Recovering accidentally deleted content',
-        },
+          description: 'Restore an item',
+          input: { id: 105 },
+          expected_output: 'Success message',
+          use_case: 'Undoing a delete',
+        }
       ],
       usage_patterns: [
-        'Restore accidentally deleted content',
-        'Recover content after reviewing deletion',
-        'Undo deletion operations',
+        'Must use the ID from the recycle bin list, not the original book/page ID',
       ],
-      related_tools: ['bookstack_recycle_bin_list'],
+      related_tools: ['bookstack_recyclebin_list'],
       error_codes: [
         {
-          code: 'UNAUTHORIZED',
-          description: 'Authentication failed or insufficient permissions',
-          recovery_suggestion: 'Verify API token and admin permissions',
-        },
-        {
           code: 'NOT_FOUND',
-          description: 'Deletion ID not found in recycle bin',
-          recovery_suggestion: 'Check deletion_id from recycle bin list',
-        },
+          description: 'Deletion record not found',
+          recovery_suggestion: 'Check ID from list tool',
+        }
       ],
       handler: async (params: any) => {
-        const deletionId = this.validator.validateId(params.deletion_id);
+        const deletionId = this.validator.validateId(params.id);
         this.logger.info('Restoring from recycle bin', { deletion_id: deletionId });
         await this.client.restoreFromRecycleBin(deletionId);
         return { success: true, message: `Item ${deletionId} restored successfully` };
@@ -145,46 +130,39 @@ export class RecycleBinTools {
    */
   private createPermanentlyDeleteTool(): MCPTool {
     return {
-      name: 'bookstack_recycle_bin_delete_permanently',
-      description: 'Permanently delete an item from the recycle bin (this action cannot be undone)',
+      name: 'bookstack_recyclebin_delete_permanently',
+      description: 'Permanently delete an item from the recycle bin. This is destructive and cannot be undone.',
       inputSchema: {
         type: 'object',
-        required: ['deletion_id'],
+        required: ['id'],
         properties: {
-          deletion_id: {
+          id: {
             type: 'integer',
-            description: 'Deletion ID of the item to permanently delete',
+            description: 'The `deletion_id` of the item to purge.',
           },
         },
       },
       examples: [
         {
-          description: 'Permanently delete an item',
-          input: { deletion_id: 42 },
-          expected_output: 'Confirmation of permanent deletion',
-          use_case: 'Final cleanup of unwanted content',
-        },
+          description: 'Purge an item',
+          input: { id: 105 },
+          expected_output: 'Success message',
+          use_case: 'Privacy cleanup',
+        }
       ],
       usage_patterns: [
-        'Clean up old deleted content permanently',
-        'Final removal of unwanted content',
-        'Free up storage space',
+        'Use with extreme caution',
       ],
-      related_tools: ['bookstack_recycle_bin_list'],
+      related_tools: ['bookstack_recyclebin_list'],
       error_codes: [
         {
-          code: 'UNAUTHORIZED',
-          description: 'Authentication failed or insufficient permissions',
-          recovery_suggestion: 'Verify API token and admin permissions',
-        },
-        {
           code: 'NOT_FOUND',
-          description: 'Deletion ID not found in recycle bin',
-          recovery_suggestion: 'Check deletion_id from recycle bin list',
-        },
+          description: 'Deletion record not found',
+          recovery_suggestion: 'Check ID',
+        }
       ],
       handler: async (params: any) => {
-        const deletionId = this.validator.validateId(params.deletion_id);
+        const deletionId = this.validator.validateId(params.id);
         this.logger.warn('Permanently deleting from recycle bin', { deletion_id: deletionId });
         await this.client.permanentlyDelete(deletionId);
         return { success: true, message: `Item ${deletionId} permanently deleted` };

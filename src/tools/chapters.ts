@@ -121,29 +121,29 @@ export class ChapterTools {
   private createCreateChapterTool(): MCPTool {
     return {
       name: 'bookstack_chapters_create',
-      description: 'Create a new chapter within a book with name, description, tags, and priority settings',
+      description: 'Create a new chapter within a book. Chapters are used to group related pages together.',
       inputSchema: {
         type: 'object',
         required: ['book_id', 'name'],
         properties: {
           book_id: {
             type: 'integer',
-            description: 'Parent book ID (required)',
+            description: 'ID of the book that will contain this chapter.',
           },
           name: {
             type: 'string',
             maxLength: 255,
-            description: 'Chapter name (required)',
+            description: 'Name of the chapter.',
           },
           description: {
             type: 'string',
             maxLength: 1900,
-            description: 'Chapter description in plain text',
+            description: 'Short description of the chapter contents.',
           },
           description_html: {
             type: 'string',
             maxLength: 2000,
-            description: 'Chapter description in HTML format',
+            description: 'HTML description.',
           },
           tags: {
             type: 'array',
@@ -161,14 +161,33 @@ export class ChapterTools {
               },
               required: ['name', 'value'],
             },
-            description: 'Array of tags to assign to the chapter',
+            description: 'Tags for categorization.',
           },
           priority: {
             type: 'integer',
-            description: 'Chapter priority for ordering within book',
+            description: 'Order priority.',
           },
         },
       },
+      examples: [
+        {
+          description: 'Create a chapter',
+          input: { book_id: 5, name: 'Advanced Configuration' },
+          expected_output: 'Chapter object',
+          use_case: 'Structuring a book',
+        }
+      ],
+      usage_patterns: [
+        'Organize pages into chapters when a book becomes too large or flat',
+      ],
+      related_tools: ['bookstack_books_read', 'bookstack_pages_create'],
+      error_codes: [
+        {
+          code: 'VALIDATION_ERROR',
+          description: 'Invalid book_id or missing name',
+          recovery_suggestion: 'Verify inputs',
+        }
+      ],
       handler: async (params: any) => {
         this.logger.info('Creating chapter', { name: params.name, book_id: params.book_id });
         const validatedParams = this.validator.validateParams<any>(params, 'chapterCreate');
@@ -183,17 +202,36 @@ export class ChapterTools {
   private createReadChapterTool(): MCPTool {
     return {
       name: 'bookstack_chapters_read',
-      description: 'Get details of a specific chapter including all its pages and complete structure',
+      description: 'Get details of a specific chapter, including a list of pages contained within it.',
       inputSchema: {
         type: 'object',
         required: ['id'],
         properties: {
           id: {
             type: 'integer',
-            description: 'Chapter ID to retrieve',
+            description: 'The unique ID of the chapter.',
           },
         },
       },
+      examples: [
+        {
+          description: 'Read chapter details',
+          input: { id: 8 },
+          expected_output: 'Chapter object with pages list',
+          use_case: 'Listing pages in a specific section',
+        }
+      ],
+      usage_patterns: [
+        'Use to find page IDs within a chapter',
+      ],
+      related_tools: ['bookstack_pages_read'],
+      error_codes: [
+        {
+          code: 'NOT_FOUND',
+          description: 'Chapter not found',
+          recovery_suggestion: 'Verify ID',
+        }
+      ],
       handler: async (params: any) => {
         const id = this.validator.validateId(params.id);
         this.logger.debug('Reading chapter', { id });
@@ -208,18 +246,18 @@ export class ChapterTools {
   private createUpdateChapterTool(): MCPTool {
     return {
       name: 'bookstack_chapters_update',
-      description: 'Update a chapter\'s details including name, description, tags, and priority',
+      description: 'Update a chapter\'s details. Can be used to rename, change description, or move to a different book.',
       inputSchema: {
         type: 'object',
         required: ['id'],
         properties: {
           id: {
             type: 'integer',
-            description: 'Chapter ID to update',
+            description: 'ID of the chapter to update',
           },
           book_id: {
             type: 'integer',
-            description: 'Move chapter to different book',
+            description: 'New parent book ID (Use to move the chapter)',
           },
           name: {
             type: 'string',
@@ -230,12 +268,12 @@ export class ChapterTools {
           description: {
             type: 'string',
             maxLength: 1900,
-            description: 'New chapter description in plain text',
+            description: 'New description',
           },
           description_html: {
             type: 'string',
             maxLength: 2000,
-            description: 'New chapter description in HTML format',
+            description: 'New HTML description',
           },
           tags: {
             type: 'array',
@@ -253,14 +291,33 @@ export class ChapterTools {
               },
               required: ['name', 'value'],
             },
-            description: 'New tags to assign to the chapter (replaces existing tags)',
+            description: 'New tags (replaces ALL existing tags)',
           },
           priority: {
             type: 'integer',
-            description: 'New chapter priority for ordering',
+            description: 'New priority',
           },
         },
       },
+      examples: [
+        {
+          description: 'Rename a chapter',
+          input: { id: 8, name: 'Renamed Chapter' },
+          expected_output: 'Updated chapter object',
+          use_case: 'Correcting titles',
+        }
+      ],
+      usage_patterns: [
+        'To append tags, read the chapter first to get existing tags',
+      ],
+      related_tools: ['bookstack_chapters_read'],
+      error_codes: [
+        {
+          code: 'NOT_FOUND',
+          description: 'Chapter not found',
+          recovery_suggestion: 'Verify ID',
+        }
+      ],
       handler: async (params: any) => {
         const id = this.validator.validateId(params.id);
         this.logger.info('Updating chapter', { id, fields: Object.keys(params).filter(k => k !== 'id') });
@@ -277,17 +334,36 @@ export class ChapterTools {
   private createDeleteChapterTool(): MCPTool {
     return {
       name: 'bookstack_chapters_delete',
-      description: 'Delete a chapter and all its pages (moves to recycle bin where it can be restored)',
+      description: 'Move a chapter and all its child pages to the recycle bin.',
       inputSchema: {
         type: 'object',
         required: ['id'],
         properties: {
           id: {
             type: 'integer',
-            description: 'Chapter ID to delete',
+            description: 'ID of the chapter to delete',
           },
         },
       },
+      examples: [
+        {
+          description: 'Delete a chapter',
+          input: { id: 8 },
+          expected_output: 'Success message',
+          use_case: 'Removing a whole section',
+        }
+      ],
+      usage_patterns: [
+        'WARNING: This also deletes all pages within the chapter. Use caution.',
+      ],
+      related_tools: ['bookstack_recyclebin_restore'],
+      error_codes: [
+        {
+          code: 'NOT_FOUND',
+          description: 'Chapter not found',
+          recovery_suggestion: 'Verify ID',
+        }
+      ],
       handler: async (params: any) => {
         const id = this.validator.validateId(params.id);
         this.logger.warn('Deleting chapter', { id });
@@ -303,22 +379,41 @@ export class ChapterTools {
   private createExportChapterTool(): MCPTool {
     return {
       name: 'bookstack_chapters_export',
-      description: 'Export a chapter and all its pages in various formats (HTML, PDF, plain text, or Markdown)',
+      description: 'Export a chapter to a specific format. Includes content from all pages in the chapter.',
       inputSchema: {
         type: 'object',
         required: ['id', 'format'],
         properties: {
           id: {
             type: 'integer',
-            description: 'Chapter ID to export',
+            description: 'ID of the chapter to export',
           },
           format: {
             type: 'string',
             enum: ['html', 'pdf', 'plaintext', 'markdown'],
-            description: 'Export format',
+            description: 'Desired format',
           },
         },
       },
+      examples: [
+        {
+          description: 'Export chapter as PDF',
+          input: { id: 8, format: 'pdf' },
+          expected_output: 'PDF file content',
+          use_case: 'Creating a printable section guide',
+        }
+      ],
+      usage_patterns: [
+        'Use "plaintext" or "markdown" for LLM context injection',
+      ],
+      related_tools: ['bookstack_books_export'],
+      error_codes: [
+        {
+          code: 'NOT_FOUND',
+          description: 'Chapter not found',
+          recovery_suggestion: 'Verify ID',
+        }
+      ],
       handler: async (params: any) => {
         const id = this.validator.validateId(params.id);
         const { format } = params;

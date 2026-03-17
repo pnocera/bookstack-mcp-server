@@ -32,7 +32,7 @@ export class PermissionTools {
   private createReadPermissionsTool(): MCPTool {
     return {
       name: 'bookstack_permissions_read',
-      description: 'Get permission settings for specific content (books, chapters, pages, or shelves)',
+      description: 'Check who can see or edit a specific item. Returns the permission settings for a book, chapter, page, or shelf.',
       category: 'permissions',
       inputSchema: {
         type: 'object',
@@ -41,11 +41,11 @@ export class PermissionTools {
           content_type: {
             type: 'string',
             enum: ['book', 'chapter', 'page', 'bookshelf'],
-            description: 'Type of content to check permissions for',
+            description: 'The type of entity.',
           },
           content_id: {
             type: 'integer',
-            description: 'ID of the content item',
+            description: 'The ID of the entity.',
           },
         },
       },
@@ -53,33 +53,20 @@ export class PermissionTools {
         {
           description: 'Check book permissions',
           input: { content_type: 'book', content_id: 5 },
-          expected_output: 'Permission settings for book ID 5',
-          use_case: 'Understanding who can access a specific book',
-        },
-        {
-          description: 'Check page permissions',
-          input: { content_type: 'page', content_id: 123 },
-          expected_output: 'Permission settings for page ID 123',
-          use_case: 'Verifying access control for sensitive pages',
-        },
+          expected_output: 'Permission object',
+          use_case: 'Verifying access control',
+        }
       ],
       usage_patterns: [
-        'Use before updating permissions to see current state',
-        'Check permissions to understand access restrictions',
-        'Audit content access settings',
+        'Use to debug why a user cannot see a page',
       ],
-      related_tools: ['bookstack_permissions_update', 'bookstack_users_list', 'bookstack_roles_list'],
+      related_tools: ['bookstack_permissions_update'],
       error_codes: [
         {
-          code: 'UNAUTHORIZED',
-          description: 'Authentication failed or insufficient permissions',
-          recovery_suggestion: 'Verify API token and admin permissions',
-        },
-        {
           code: 'NOT_FOUND',
-          description: 'Content item not found',
-          recovery_suggestion: 'Verify content_type and content_id are correct',
-        },
+          description: 'Item not found',
+          recovery_suggestion: 'Check ID',
+        }
       ],
       handler: async (params: any) => {
         const { content_type, content_id } = params;
@@ -96,7 +83,7 @@ export class PermissionTools {
   private createUpdatePermissionsTool(): MCPTool {
     return {
       name: 'bookstack_permissions_update',
-      description: 'Update permission settings for specific content to control user and role access',
+      description: 'Set custom permissions for a specific item. Overrides default role-based access.',
       inputSchema: {
         type: 'object',
         required: ['content_type', 'content_id'],
@@ -104,25 +91,25 @@ export class PermissionTools {
           content_type: {
             type: 'string',
             enum: ['book', 'chapter', 'page', 'bookshelf'],
-            description: 'Type of content to update permissions for',
+            description: 'Type of entity.',
           },
           content_id: {
             type: 'integer',
-            description: 'ID of the content item',
+            description: 'ID of the entity.',
           },
           fallback_permissions: {
             type: 'object',
             properties: {
               inheriting: {
                 type: 'boolean',
-                description: 'Whether to inherit permissions from parent',
+                description: 'If true, inherits permissions from parent (default).',
               },
               restricted: {
                 type: 'boolean',
-                description: 'Whether content has custom restrictions',
+                description: 'If true, restricts access to only specified roles/users.',
               },
             },
-            description: 'Fallback permission settings',
+            description: 'General settings.',
           },
           permissions: {
             type: 'array',
@@ -131,34 +118,46 @@ export class PermissionTools {
               properties: {
                 role_id: {
                   type: 'integer',
-                  description: 'Role ID to grant permissions to',
+                  description: 'Role to grant access to.',
                 },
                 user_id: {
                   type: 'integer',
-                  description: 'User ID to grant permissions to (alternative to role_id)',
+                  description: 'User to grant access to.',
                 },
-                view: {
-                  type: 'boolean',
-                  description: 'Allow view access',
-                },
-                create: {
-                  type: 'boolean',
-                  description: 'Allow create access',
-                },
-                update: {
-                  type: 'boolean',
-                  description: 'Allow update access',
-                },
-                delete: {
-                  type: 'boolean',
-                  description: 'Allow delete access',
-                },
+                view: { type: 'boolean' },
+                create: { type: 'boolean' },
+                update: { type: 'boolean' },
+                delete: { type: 'boolean' },
               },
             },
-            description: 'Array of specific permission grants',
+            description: 'Specific access grants.',
           },
         },
       },
+      examples: [
+        {
+          description: 'Restrict book to specific role',
+          input: {
+            content_type: 'book',
+            content_id: 5,
+            fallback_permissions: { restricted: true },
+            permissions: [{ role_id: 3, view: true }]
+          },
+          expected_output: 'Updated permissions',
+          use_case: 'Locking down sensitive content',
+        }
+      ],
+      usage_patterns: [
+        'To restrict access, set `restricted: true` in fallback_permissions and add specific grants in `permissions`',
+      ],
+      related_tools: ['bookstack_permissions_read'],
+      error_codes: [
+        {
+          code: 'NOT_FOUND',
+          description: 'Item not found',
+          recovery_suggestion: 'Check ID',
+        }
+      ],
       handler: async (params: any) => {
         const { content_type, content_id, ...updateParams } = params;
         const id = this.validator.validateId(content_id);

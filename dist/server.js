@@ -1,8 +1,13 @@
 #!/usr/bin/env node
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.BookStackMCPServer = void 0;
+const express_1 = __importDefault(require("express"));
 const index_js_1 = require("@modelcontextprotocol/sdk/server/index.js");
+const streamableHttp_js_1 = require("@modelcontextprotocol/sdk/server/streamableHttp.js");
 const stdio_js_1 = require("@modelcontextprotocol/sdk/server/stdio.js");
 const types_js_1 = require("@modelcontextprotocol/sdk/types.js");
 const client_1 = require("./api/client");
@@ -44,10 +49,18 @@ const search_2 = require("./resources/search");
  * - Rate limiting and retry policies
  */
 class BookStackMCPServer {
-    constructor() {
+    constructor(configOverrides) {
         this.tools = new Map();
         this.resources = new Map();
-        const config = manager_1.ConfigManager.getInstance().getConfig();
+        const baseConfig = manager_1.ConfigManager.getInstance().getConfig();
+        // Merge overrides
+        const config = { ...baseConfig };
+        if (configOverrides) {
+            if (configOverrides.bookstack) {
+                config.bookstack = { ...config.bookstack, ...configOverrides.bookstack };
+            }
+            // Add other overrides as needed
+        }
         this.logger = logger_1.Logger.getInstance();
         this.errorHandler = new errors_1.ErrorHandler(this.logger);
         this.validator = new validator_1.ValidationHandler(config.validation);
@@ -126,11 +139,22 @@ class BookStackMCPServer {
     setupHandlers() {
         // List tools handler
         this.server.setRequestHandler(types_js_1.ListToolsRequestSchema, async () => {
-            const tools = Array.from(this.tools.values()).map(tool => ({
-                name: tool.name,
-                description: tool.description,
-                inputSchema: tool.inputSchema,
-            }));
+            const tools = Array.from(this.tools.values()).map(tool => {
+                let enhancedDescription = tool.description;
+                // Append usage patterns
+                if (tool.usage_patterns && tool.usage_patterns.length > 0) {
+                    enhancedDescription += '\n\nUsage Patterns:\n' + tool.usage_patterns.map(p => `- ${p}`).join('\n');
+                }
+                // Append examples
+                if (tool.examples && tool.examples.length > 0) {
+                    enhancedDescription += '\n\nExamples:\n' + tool.examples.map(e => `- ${e.description}\n  Input: ${JSON.stringify(e.input)}`).join('\n');
+                }
+                return {
+                    name: tool.name,
+                    description: enhancedDescription,
+                    inputSchema: tool.inputSchema,
+                };
+            });
             this.logger.debug(`Listed ${tools.length} tools`);
             return { tools };
         });
@@ -213,15 +237,10 @@ class BookStackMCPServer {
         });
     }
     /**
-     * Start the MCP server
+     * Connect to a transport
      */
-    async start() {
-        const transport = new stdio_js_1.StdioServerTransport();
+    async connect(transport) {
         await this.server.connect(transport);
-        this.logger.info('BookStack MCP Server started and listening on stdio');
-        // Handle graceful shutdown
-        process.on('SIGINT', () => this.shutdown());
-        process.on('SIGTERM', () => this.shutdown());
     }
     /**
      * Shutdown the server gracefully
@@ -231,11 +250,9 @@ class BookStackMCPServer {
         try {
             await this.server.close();
             this.logger.info('Server shutdown complete');
-            process.exit(0);
         }
         catch (error) {
             this.logger.error('Error during shutdown', error);
-            process.exit(1);
         }
     }
     /**
@@ -266,11 +283,55 @@ class BookStackMCPServer {
 exports.BookStackMCPServer = BookStackMCPServer;
 // Start server if run directly
 if (require.main === module) {
-    const server = new BookStackMCPServer();
-    server.start().catch((error) => {
-        console.error('Failed to start server:', error);
-        process.exit(1);
-    });
+    const transport = process.env.MCP_TRANSPORT || 'http';
+    if (transport === 'stdio') {
+        const server = new BookStackMCPServer();
+        const stdioTransport = new stdio_js_1.StdioServerTransport();
+        server.connect(stdioTransport).catch((error) => {
+            console.error('Failed to start server:', error);
+            process.exit(1);
+        });
+        console.error('BookStack MCP Server started and listening on stdio');
+        // Handle graceful shutdown
+        process.on('SIGINT', () => server.shutdown());
+        process.on('SIGTERM', () => server.shutdown());
+    }
+    else {
+        const app = (0, express_1.default)();
+        app.use(express_1.default.json());
+        const config = manager_1.ConfigManager.getInstance().getConfig();
+        app.post('/message', async (req, res) => {
+            try {
+                // Extract BookStack URL and Token from headers
+                const bookstackUrl = req.headers['x-bookstack-url'];
+                const bookstackToken = req.headers['x-bookstack-token'];
+                const configOverrides = {
+                    bookstack: {
+                        baseUrl: bookstackUrl || config.bookstack.baseUrl,
+                        apiToken: bookstackToken || config.bookstack.apiToken,
+                        timeout: config.bookstack.timeout
+                    }
+                };
+                const server = new BookStackMCPServer(configOverrides);
+                const transport = new streamableHttp_js_1.StreamableHTTPServerTransport({
+                    sessionIdGenerator: undefined,
+                    enableJsonResponse: true,
+                });
+                await server.connect(transport);
+                await transport.handleRequest(req, res, req.body);
+            }
+            catch (error) {
+                console.error('Error handling request:', error);
+                if (!res.headersSent) {
+                    res.status(500).send('Internal Server Error');
+                }
+            }
+        });
+        const port = config.server.port || 3000;
+        app.listen(port, () => {
+            console.log(`BookStack MCP Server listening on port ${port}`);
+        });
+    }
 }
 exports.default = BookStackMCPServer;
 //# sourceMappingURL=server.js.map

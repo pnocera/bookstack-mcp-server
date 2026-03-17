@@ -27,7 +27,7 @@ class AuditTools {
     createListAuditLogTool() {
         return {
             name: 'bookstack_audit_log_list',
-            description: 'List audit log entries to track system activities and user actions',
+            description: 'Retrieve the audit log to see recent activities on the instance. Tracks creation, updates, deletions, and other system events.',
             category: 'audit',
             inputSchema: {
                 type: 'object',
@@ -37,88 +37,73 @@ class AuditTools {
                         minimum: 1,
                         maximum: 500,
                         default: 20,
-                        description: 'Number of audit log entries to return',
+                        description: 'Number of entries to return.',
                     },
                     offset: {
                         type: 'integer',
                         minimum: 0,
                         default: 0,
-                        description: 'Number of audit log entries to skip',
+                        description: 'Pagination offset.',
                     },
                     sort: {
                         type: 'string',
                         enum: ['created_at'],
                         default: 'created_at',
-                        description: 'Sort field (most recent first)',
+                        description: 'Sort direction (default is recent first).',
                     },
                     filter: {
                         type: 'object',
                         properties: {
                             event: {
                                 type: 'string',
-                                description: 'Filter by event type (e.g., page_create, user_login)',
+                                description: 'Filter by event key (e.g. "page_create", "book_delete").',
                             },
                             user_id: {
                                 type: 'integer',
-                                description: 'Filter by user ID who performed the action',
+                                description: 'Filter by acting user ID.',
                             },
                             entity_type: {
                                 type: 'string',
                                 enum: ['page', 'book', 'chapter', 'bookshelf', 'user', 'role'],
-                                description: 'Filter by entity type affected',
+                                description: 'Filter by affected entity type.',
                             },
                             entity_id: {
                                 type: 'integer',
-                                description: 'Filter by specific entity ID affected',
+                                description: 'Filter by affected entity ID.',
                             },
                             date_from: {
                                 type: 'string',
                                 format: 'date',
-                                description: 'Filter events from this date (YYYY-MM-DD)',
+                                description: 'Start date (YYYY-MM-DD).',
                             },
                             date_to: {
                                 type: 'string',
                                 format: 'date',
-                                description: 'Filter events to this date (YYYY-MM-DD)',
+                                description: 'End date (YYYY-MM-DD).',
                             },
                         },
-                        description: 'Optional filters to apply',
+                        description: 'Filters to narrow down the log.',
                     },
                 },
             },
             examples: [
                 {
-                    description: 'List recent audit events',
-                    input: { count: 20 },
-                    expected_output: 'Array of audit log entries with details',
-                    use_case: 'Monitoring recent system activity',
-                },
-                {
-                    description: 'Find page creation events',
-                    input: { filter: { event: 'page_create' } },
-                    expected_output: 'Audit entries for page creation events',
-                    use_case: 'Tracking content creation activity',
-                },
-                {
-                    description: 'Find actions by specific user',
-                    input: { filter: { user_id: 5 } },
-                    expected_output: 'All audit entries for user ID 5',
-                    use_case: 'Investigating specific user activity',
-                },
+                    description: 'Check who deleted a page',
+                    input: { filter: { event: 'page_delete', date_from: '2023-01-01' } },
+                    expected_output: 'List of deletion events',
+                    use_case: 'Security audit',
+                }
             ],
             usage_patterns: [
-                'Monitor system activity and user actions',
-                'Investigate security incidents',
-                'Track content changes and deletions',
-                'Compliance and audit requirements',
+                'Use to track down when a specific change happened',
             ],
-            related_tools: ['bookstack_users_list', 'bookstack_books_list'],
+            related_tools: ['bookstack_users_list'],
             error_codes: [
                 {
                     code: 'UNAUTHORIZED',
-                    description: 'Authentication failed or insufficient permissions',
-                    recovery_suggestion: 'Verify API token and admin permissions',
-                },
+                    description: 'Insufficient permissions',
+                    recovery_suggestion: 'Requires admin privileges',
+                }
             ],
             handler: async (params) => {
                 this.logger.debug('Listing audit log entries', params);

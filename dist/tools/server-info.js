@@ -32,7 +32,7 @@ class ServerInfoTools {
     createServerInfoTool() {
         return {
             name: 'bookstack_server_info',
-            description: 'Get comprehensive server information including capabilities, tools, resources, and usage guidance for LLM interaction',
+            description: 'Get comprehensive information about this BookStack MCP server. Includes capabilities, version, available tools, and usage examples.',
             category: 'meta',
             inputSchema: {
                 type: 'object',
@@ -41,34 +41,26 @@ class ServerInfoTools {
                         type: 'string',
                         enum: ['all', 'capabilities', 'tools', 'resources', 'examples', 'errors'],
                         default: 'all',
-                        description: 'Which section of server info to retrieve',
+                        description: 'Specific section to retrieve. Defaults to "all".',
                     },
                 },
             },
             examples: [
                 {
-                    description: 'Get complete server information',
+                    description: 'Get all server info',
                     input: { section: 'all' },
-                    expected_output: 'Complete server info with all capabilities and guidance',
-                    use_case: 'Initial LLM connection to understand server capabilities',
-                },
-                {
-                    description: 'Get only tool capabilities',
-                    input: { section: 'tools' },
-                    expected_output: 'List of all tools with categories and usage patterns',
-                    use_case: 'Understanding available operations before task execution',
-                },
+                    expected_output: 'Full server metadata',
+                    use_case: 'Initial discovery',
+                }
             ],
             usage_patterns: [
-                'Call at beginning of session to understand server capabilities',
-                'Use before complex workflows to plan tool usage',
-                'Reference when encountering errors for debugging guidance',
+                'Call this first when connecting to understand what the server can do',
             ],
             error_codes: [
                 {
                     code: 'INVALID_SECTION',
-                    description: 'Requested section does not exist',
-                    recovery_suggestion: 'Use one of: all, capabilities, tools, resources, examples, errors',
+                    description: 'Invalid section requested',
+                    recovery_suggestion: 'Use one of the allowed enum values',
                 },
             ],
             handler: async (params) => {
@@ -141,7 +133,7 @@ class ServerInfoTools {
     createToolCategoriesTool() {
         return {
             name: 'bookstack_tool_categories',
-            description: 'Get detailed information about tool categories and their specific use cases',
+            description: 'Get a list of tool categories (e.g., books, pages, users) and their descriptions.',
             category: 'meta',
             inputSchema: {
                 type: 'object',
@@ -149,7 +141,7 @@ class ServerInfoTools {
                     category: {
                         type: 'string',
                         enum: ['books', 'pages', 'chapters', 'shelves', 'users', 'roles', 'search', 'system', 'attachments', 'images'],
-                        description: 'Specific category to get detailed info about',
+                        description: 'Specific category name.',
                     },
                 },
             },
@@ -168,7 +160,7 @@ class ServerInfoTools {
     createUsageExamplesTool() {
         return {
             name: 'bookstack_usage_examples',
-            description: 'Get step-by-step workflow examples for common BookStack operations',
+            description: 'Get common workflow examples, such as how to create documentation or manage users.',
             category: 'meta',
             inputSchema: {
                 type: 'object',
@@ -176,7 +168,7 @@ class ServerInfoTools {
                     workflow: {
                         type: 'string',
                         enum: ['create_documentation', 'organize_content', 'user_management', 'search_content', 'export_data'],
-                        description: 'Specific workflow to get example for',
+                        description: 'Specific workflow name.',
                     },
                 },
             },
@@ -195,14 +187,14 @@ class ServerInfoTools {
     createErrorGuidesTool() {
         return {
             name: 'bookstack_error_guides',
-            description: 'Get comprehensive error handling information and troubleshooting guides',
+            description: 'Get information about common error codes and how to resolve them.',
             category: 'meta',
             inputSchema: {
                 type: 'object',
                 properties: {
                     error_code: {
                         type: 'string',
-                        description: 'Specific error code to get guidance for',
+                        description: 'Error code to look up (e.g. UNAUTHORIZED).',
                     },
                 },
             },
@@ -222,7 +214,7 @@ class ServerInfoTools {
     createHelpTool() {
         return {
             name: 'bookstack_help',
-            description: 'Interactive help system providing contextual guidance for LLM tool usage',
+            description: 'Get context-aware help and advice on how to use this MCP server.',
             category: 'meta',
             inputSchema: {
                 type: 'object',
@@ -230,11 +222,11 @@ class ServerInfoTools {
                     topic: {
                         type: 'string',
                         enum: ['getting_started', 'authentication', 'content_creation', 'user_management', 'search', 'best_practices'],
-                        description: 'Help topic to get guidance about',
+                        description: 'Topic to ask about.',
                     },
                     context: {
                         type: 'string',
-                        description: 'Additional context about what you are trying to achieve',
+                        description: 'Describe what you are trying to do.',
                     },
                 },
             },
@@ -275,7 +267,7 @@ class ServerInfoTools {
             {
                 name: 'chapters',
                 description: 'Manage chapters - organize pages within books',
-                tools: ['bookstack_chapters_list', 'bookstack_chapters_create', 'bookstack_chapters_read', 'bookstack_chapters_update', 'bookstack_chapters_delete'],
+                tools: ['bookstack_chapters_list', 'bookstack_chapters_create', 'bookstack_chapters_read', 'bookstack_chapters_update', 'bookstack_chapters_delete', 'bookstack_chapters_export'],
                 use_cases: ['Structure documentation', 'Group related pages', 'Create logical content flow'],
             },
             {
@@ -287,7 +279,7 @@ class ServerInfoTools {
             {
                 name: 'search',
                 description: 'Search across all content types',
-                tools: ['bookstack_search_all', 'bookstack_search_books', 'bookstack_search_pages'],
+                tools: ['bookstack_search'],
                 use_cases: ['Find existing content', 'Locate information quickly', 'Content discovery'],
             },
             {
@@ -297,10 +289,34 @@ class ServerInfoTools {
                 use_cases: ['User account management', 'Access control', 'Team collaboration setup'],
             },
             {
+                name: 'roles',
+                description: 'Manage user roles and permissions',
+                tools: ['bookstack_roles_list', 'bookstack_roles_create', 'bookstack_roles_read', 'bookstack_roles_update', 'bookstack_roles_delete'],
+                use_cases: ['Define access levels', 'Manage privileges', 'Group permissions'],
+            },
+            {
                 name: 'system',
                 description: 'System administration and monitoring',
-                tools: ['bookstack_system_info', 'bookstack_audit_list', 'bookstack_permissions_get', 'bookstack_permissions_update'],
+                tools: ['bookstack_system_info', 'bookstack_audit_log_list', 'bookstack_permissions_read', 'bookstack_permissions_update'],
                 use_cases: ['System monitoring', 'Security auditing', 'Permission management'],
+            },
+            {
+                name: 'recyclebin',
+                description: 'Manage deleted content',
+                tools: ['bookstack_recyclebin_list', 'bookstack_recyclebin_restore', 'bookstack_recyclebin_delete_permanently'],
+                use_cases: ['Restore accidental deletions', 'Permanently purge content', 'Audit deleted items'],
+            },
+            {
+                name: 'attachments',
+                description: 'Manage file attachments',
+                tools: ['bookstack_attachments_list', 'bookstack_attachments_create', 'bookstack_attachments_read', 'bookstack_attachments_update', 'bookstack_attachments_delete'],
+                use_cases: ['Attach files to pages', 'Manage external links'],
+            },
+            {
+                name: 'images',
+                description: 'Manage image gallery',
+                tools: ['bookstack_images_list', 'bookstack_images_create', 'bookstack_images_read', 'bookstack_images_update', 'bookstack_images_delete'],
+                use_cases: ['Upload images', 'Manage gallery assets'],
             },
         ];
     }
@@ -378,7 +394,7 @@ class ServerInfoTools {
                     {
                         step: 1,
                         action: 'Search for content',
-                        tool_or_resource: 'bookstack_search_all',
+                        tool_or_resource: 'bookstack_search',
                         parameters: { query: 'authentication methods' },
                         description: 'Locate existing content related to your topic',
                     },

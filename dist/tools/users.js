@@ -31,7 +31,7 @@ class UserTools {
     createListUsersTool() {
         return {
             name: 'bookstack_users_list',
-            description: 'List all users in the system with pagination and filtering options',
+            description: 'List all users. Users are people who can log in to BookStack.',
             category: 'users',
             inputSchema: {
                 type: 'object',
@@ -41,66 +41,58 @@ class UserTools {
                         minimum: 1,
                         maximum: 500,
                         default: 20,
-                        description: 'Number of users to return',
+                        description: 'Number of users to return.',
                     },
                     offset: {
                         type: 'integer',
                         minimum: 0,
                         default: 0,
-                        description: 'Number of users to skip',
+                        description: 'Pagination offset.',
                     },
                     sort: {
                         type: 'string',
                         enum: ['name', 'email', 'created_at', 'updated_at'],
                         default: 'name',
-                        description: 'Sort field',
+                        description: 'Sort field.',
                     },
                     filter: {
                         type: 'object',
                         properties: {
                             name: {
                                 type: 'string',
-                                description: 'Filter by user name (partial match)',
+                                description: 'Filter by name.',
                             },
                             email: {
                                 type: 'string',
-                                description: 'Filter by email address (partial match)',
+                                description: 'Filter by email.',
                             },
                             active: {
                                 type: 'boolean',
-                                description: 'Filter by active status',
+                                description: 'Filter by active status.',
                             },
                         },
-                        description: 'Optional filters to apply',
+                        description: 'Filters.',
                     },
                 },
             },
             examples: [
                 {
-                    description: 'List first 10 users',
-                    input: { count: 10 },
-                    expected_output: 'Array of user objects with metadata',
-                    use_case: 'Getting overview of system users',
-                },
-                {
-                    description: 'Find active users only',
-                    input: { filter: { active: true } },
-                    expected_output: 'Only active users in the system',
-                    use_case: 'Finding users who can access the system',
-                },
+                    description: 'Find user by email',
+                    input: { filter: { email: 'alice@example.com' } },
+                    expected_output: 'User object',
+                    use_case: 'Looking up a specific person',
+                }
             ],
             usage_patterns: [
-                'Use before managing user permissions',
-                'Filter by active status to find enabled users',
-                'Search by email to find specific users',
+                'Use to check if a user exists',
             ],
-            related_tools: ['bookstack_users_read', 'bookstack_roles_list'],
+            related_tools: ['bookstack_users_read'],
             error_codes: [
                 {
                     code: 'UNAUTHORIZED',
-                    description: 'Authentication failed or insufficient permissions',
-                    recovery_suggestion: 'Verify API token and admin permissions',
-                },
+                    description: 'Insufficient permissions',
+                    recovery_suggestion: 'Requires admin privileges',
+                }
             ],
             handler: async (params) => {
                 this.logger.debug('Listing users', params);
@@ -115,7 +107,7 @@ class UserTools {
     createCreateUserTool() {
         return {
             name: 'bookstack_users_create',
-            description: 'Create a new user account with email, name, and role assignments',
+            description: 'Create a new user account. Requires name and email. Can optionally set a password and assign roles.',
             inputSchema: {
                 type: 'object',
                 required: ['name', 'email'],
@@ -123,37 +115,56 @@ class UserTools {
                     name: {
                         type: 'string',
                         maxLength: 255,
-                        description: 'User display name (required)',
+                        description: 'Display name.',
                     },
                     email: {
                         type: 'string',
                         format: 'email',
                         maxLength: 255,
-                        description: 'User email address (required, must be unique)',
+                        description: 'Email address (must be unique).',
                     },
                     password: {
                         type: 'string',
                         minLength: 8,
-                        description: 'User password (required for local accounts)',
+                        description: 'Initial password (if not provided, user may need to reset it or use external auth).',
                     },
                     roles: {
                         type: 'array',
                         items: {
                             type: 'integer',
                         },
-                        description: 'Array of role IDs to assign to the user',
+                        description: 'List of role IDs to assign.',
                     },
                     send_invite: {
                         type: 'boolean',
                         default: false,
-                        description: 'Send invitation email to the user',
+                        description: 'Send an email invitation.',
                     },
                     external_auth_id: {
                         type: 'string',
-                        description: 'External authentication ID for LDAP/SAML users',
+                        description: 'External ID for SSO.',
                     },
                 },
             },
+            examples: [
+                {
+                    description: 'Create a standard user',
+                    input: { name: 'John Doe', email: 'john@example.com', password: 'securePassword123', roles: [2] },
+                    expected_output: 'User object',
+                    use_case: 'Onboarding new team members',
+                }
+            ],
+            usage_patterns: [
+                'Assign default roles if unsure',
+            ],
+            related_tools: ['bookstack_roles_list'],
+            error_codes: [
+                {
+                    code: 'VALIDATION_ERROR',
+                    description: 'Email already exists',
+                    recovery_suggestion: 'Use a different email',
+                }
+            ],
             handler: async (params) => {
                 this.logger.info('Creating user', { name: params.name, email: params.email });
                 const validatedParams = this.validator.validateParams(params, 'userCreate');
@@ -167,17 +178,36 @@ class UserTools {
     createReadUserTool() {
         return {
             name: 'bookstack_users_read',
-            description: 'Get details of a specific user including their roles and permissions',
+            description: 'Get details of a specific user, including their assigned roles.',
             inputSchema: {
                 type: 'object',
                 required: ['id'],
                 properties: {
                     id: {
                         type: 'integer',
-                        description: 'User ID to retrieve',
+                        description: 'ID of the user.',
                     },
                 },
             },
+            examples: [
+                {
+                    description: 'Get user profile',
+                    input: { id: 5 },
+                    expected_output: 'User object with roles',
+                    use_case: 'Checking user status',
+                }
+            ],
+            usage_patterns: [
+                'Use to check current roles before updating',
+            ],
+            related_tools: ['bookstack_users_list'],
+            error_codes: [
+                {
+                    code: 'NOT_FOUND',
+                    description: 'User not found',
+                    recovery_suggestion: 'Verify ID',
+                }
+            ],
             handler: async (params) => {
                 const id = this.validator.validateId(params.id);
                 this.logger.debug('Reading user', { id });
@@ -191,49 +221,68 @@ class UserTools {
     createUpdateUserTool() {
         return {
             name: 'bookstack_users_update',
-            description: 'Update a user\'s details including name, email, password, and role assignments',
+            description: 'Update a user\'s profile or roles.',
             inputSchema: {
                 type: 'object',
                 required: ['id'],
                 properties: {
                     id: {
                         type: 'integer',
-                        description: 'User ID to update',
+                        description: 'ID of the user to update',
                     },
                     name: {
                         type: 'string',
                         minLength: 1,
                         maxLength: 255,
-                        description: 'New user display name',
+                        description: 'New display name',
                     },
                     email: {
                         type: 'string',
                         format: 'email',
                         maxLength: 255,
-                        description: 'New user email address (must be unique)',
+                        description: 'New email',
                     },
                     password: {
                         type: 'string',
                         minLength: 8,
-                        description: 'New user password',
+                        description: 'New password',
                     },
                     roles: {
                         type: 'array',
                         items: {
                             type: 'integer',
                         },
-                        description: 'New array of role IDs (replaces existing roles)',
+                        description: 'New list of role IDs (replaces existing roles).',
                     },
                     active: {
                         type: 'boolean',
-                        description: 'Set user active/inactive status',
+                        description: 'Active status (true/false).',
                     },
                     external_auth_id: {
                         type: 'string',
-                        description: 'External authentication ID for LDAP/SAML users',
+                        description: 'External ID.',
                     },
                 },
             },
+            examples: [
+                {
+                    description: 'Deactivate a user',
+                    input: { id: 5, active: false },
+                    expected_output: 'Updated user object',
+                    use_case: 'Offboarding',
+                }
+            ],
+            usage_patterns: [
+                'To append a role, read the user first to get current roles, add the new one, and then update.',
+            ],
+            related_tools: ['bookstack_users_read'],
+            error_codes: [
+                {
+                    code: 'NOT_FOUND',
+                    description: 'User not found',
+                    recovery_suggestion: 'Verify ID',
+                }
+            ],
             handler: async (params) => {
                 const id = this.validator.validateId(params.id);
                 this.logger.info('Updating user', { id, fields: Object.keys(params).filter(k => k !== 'id') });
@@ -249,21 +298,40 @@ class UserTools {
     createDeleteUserTool() {
         return {
             name: 'bookstack_users_delete',
-            description: 'Delete a user account with option to migrate content ownership to another user',
+            description: 'Delete a user account. You can optionally transfer their content (books, pages, etc.) to another user.',
             inputSchema: {
                 type: 'object',
                 required: ['id'],
                 properties: {
                     id: {
                         type: 'integer',
-                        description: 'User ID to delete',
+                        description: 'ID of the user to delete',
                     },
                     migrate_ownership_id: {
                         type: 'integer',
-                        description: 'User ID to transfer content ownership to (optional)',
+                        description: 'ID of the user who will inherit the deleted user\'s content.',
                     },
                 },
             },
+            examples: [
+                {
+                    description: 'Delete user and transfer content',
+                    input: { id: 5, migrate_ownership_id: 1 },
+                    expected_output: 'Success message',
+                    use_case: 'Removing former employee but keeping their work',
+                }
+            ],
+            usage_patterns: [
+                'Always migrate ownership if the user has created content you want to keep',
+            ],
+            related_tools: ['bookstack_users_list'],
+            error_codes: [
+                {
+                    code: 'NOT_FOUND',
+                    description: 'User not found',
+                    recovery_suggestion: 'Verify ID',
+                }
+            ],
             handler: async (params) => {
                 const id = this.validator.validateId(params.id);
                 this.logger.warn('Deleting user', { id, migrate_to: params.migrate_ownership_id });

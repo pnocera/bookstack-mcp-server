@@ -111,7 +111,7 @@ class ShelfTools {
     createCreateShelfTool() {
         return {
             name: 'bookstack_shelves_create',
-            description: 'Create a new bookshelf with name, description, and tags',
+            description: 'Create a new bookshelf. Bookshelves are used to group related books together for better organization.',
             inputSchema: {
                 type: 'object',
                 required: ['name'],
@@ -119,17 +119,17 @@ class ShelfTools {
                     name: {
                         type: 'string',
                         maxLength: 255,
-                        description: 'Shelf name (required)',
+                        description: 'Name of the shelf.',
                     },
                     description: {
                         type: 'string',
                         maxLength: 1900,
-                        description: 'Shelf description in plain text',
+                        description: 'Short description.',
                     },
                     description_html: {
                         type: 'string',
                         maxLength: 2000,
-                        description: 'Shelf description in HTML format',
+                        description: 'HTML description.',
                     },
                     tags: {
                         type: 'array',
@@ -147,17 +147,36 @@ class ShelfTools {
                             },
                             required: ['name', 'value'],
                         },
-                        description: 'Array of tags to assign to the shelf',
+                        description: 'Tags for categorization.',
                     },
                     books: {
                         type: 'array',
                         items: {
                             type: 'integer',
                         },
-                        description: 'Array of book IDs to add to the shelf',
+                        description: 'List of book IDs to include in this shelf.',
                     },
                 },
             },
+            examples: [
+                {
+                    description: 'Create a shelf for Project X',
+                    input: { name: 'Project X Documentation', books: [1, 2, 5] },
+                    expected_output: 'Shelf object with assigned books',
+                    use_case: 'Grouping project-specific books',
+                }
+            ],
+            usage_patterns: [
+                'Use shelves when you have multiple books that relate to a larger theme',
+            ],
+            related_tools: ['bookstack_books_create'],
+            error_codes: [
+                {
+                    code: 'VALIDATION_ERROR',
+                    description: 'Name is missing',
+                    recovery_suggestion: 'Provide a name',
+                }
+            ],
             handler: async (params) => {
                 this.logger.info('Creating shelf', { name: params.name });
                 const validatedParams = this.validator.validateParams(params, 'shelfCreate');
@@ -171,17 +190,36 @@ class ShelfTools {
     createReadShelfTool() {
         return {
             name: 'bookstack_shelves_read',
-            description: 'Get details of a specific bookshelf including all its books and their structure',
+            description: 'Get details of a specific bookshelf, including the list of books assigned to it.',
             inputSchema: {
                 type: 'object',
                 required: ['id'],
                 properties: {
                     id: {
                         type: 'integer',
-                        description: 'Shelf ID to retrieve',
+                        description: 'The unique ID of the shelf.',
                     },
                 },
             },
+            examples: [
+                {
+                    description: 'Read shelf details',
+                    input: { id: 3 },
+                    expected_output: 'Shelf object with books list',
+                    use_case: 'Checking contents of a collection',
+                }
+            ],
+            usage_patterns: [
+                'Use to find books related to a specific topic/shelf',
+            ],
+            related_tools: ['bookstack_books_read'],
+            error_codes: [
+                {
+                    code: 'NOT_FOUND',
+                    description: 'Shelf not found',
+                    recovery_suggestion: 'Verify ID',
+                }
+            ],
             handler: async (params) => {
                 const id = this.validator.validateId(params.id);
                 this.logger.debug('Reading shelf', { id });
@@ -195,30 +233,30 @@ class ShelfTools {
     createUpdateShelfTool() {
         return {
             name: 'bookstack_shelves_update',
-            description: 'Update a bookshelf\'s details including name, description, tags, and book collection',
+            description: 'Update a bookshelf\'s details. Can be used to rename, change description, or update the list of books on the shelf.',
             inputSchema: {
                 type: 'object',
                 required: ['id'],
                 properties: {
                     id: {
                         type: 'integer',
-                        description: 'Shelf ID to update',
+                        description: 'ID of the shelf to update',
                     },
                     name: {
                         type: 'string',
                         minLength: 1,
                         maxLength: 255,
-                        description: 'New shelf name',
+                        description: 'New name',
                     },
                     description: {
                         type: 'string',
                         maxLength: 1900,
-                        description: 'New shelf description in plain text',
+                        description: 'New description',
                     },
                     description_html: {
                         type: 'string',
                         maxLength: 2000,
-                        description: 'New shelf description in HTML format',
+                        description: 'New HTML description',
                     },
                     tags: {
                         type: 'array',
@@ -236,17 +274,36 @@ class ShelfTools {
                             },
                             required: ['name', 'value'],
                         },
-                        description: 'New tags to assign to the shelf (replaces existing tags)',
+                        description: 'New tags (replaces ALL existing tags)',
                     },
                     books: {
                         type: 'array',
                         items: {
                             type: 'integer',
                         },
-                        description: 'New array of book IDs for the shelf (replaces existing books)',
+                        description: 'New list of book IDs (replaces ALL existing books on this shelf).',
                     },
                 },
             },
+            examples: [
+                {
+                    description: 'Update books on a shelf',
+                    input: { id: 3, books: [1, 5, 8] },
+                    expected_output: 'Updated shelf object',
+                    use_case: 'Reorganizing collections',
+                }
+            ],
+            usage_patterns: [
+                'To add a book to a shelf, you must read the shelf first to get the current list of books, add the new ID, and then call update with the full list.',
+            ],
+            related_tools: ['bookstack_shelves_read'],
+            error_codes: [
+                {
+                    code: 'NOT_FOUND',
+                    description: 'Shelf not found',
+                    recovery_suggestion: 'Verify ID',
+                }
+            ],
             handler: async (params) => {
                 const id = this.validator.validateId(params.id);
                 this.logger.info('Updating shelf', { id, fields: Object.keys(params).filter(k => k !== 'id') });
@@ -262,17 +319,36 @@ class ShelfTools {
     createDeleteShelfTool() {
         return {
             name: 'bookstack_shelves_delete',
-            description: 'Delete a bookshelf (books are not deleted, only removed from the shelf)',
+            description: 'Delete a bookshelf. This action ONLY deletes the shelf container; it does NOT delete the books that were on the shelf.',
             inputSchema: {
                 type: 'object',
                 required: ['id'],
                 properties: {
                     id: {
                         type: 'integer',
-                        description: 'Shelf ID to delete',
+                        description: 'ID of the shelf to delete',
                     },
                 },
             },
+            examples: [
+                {
+                    description: 'Delete a shelf',
+                    input: { id: 3 },
+                    expected_output: 'Success message',
+                    use_case: 'Removing an unused collection',
+                }
+            ],
+            usage_patterns: [
+                'Safe to use without losing content (books remain safe)',
+            ],
+            related_tools: ['bookstack_books_delete'],
+            error_codes: [
+                {
+                    code: 'NOT_FOUND',
+                    description: 'Shelf not found',
+                    recovery_suggestion: 'Verify ID',
+                }
+            ],
             handler: async (params) => {
                 const id = this.validator.validateId(params.id);
                 this.logger.warn('Deleting shelf', { id });

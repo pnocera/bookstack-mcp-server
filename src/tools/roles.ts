@@ -35,7 +35,7 @@ export class RoleTools {
   private createListRolesTool(): MCPTool {
     return {
       name: 'bookstack_roles_list',
-      description: 'List all roles in the system with pagination and filtering options',
+      description: 'List all user roles. Roles define what actions users can perform (e.g., "Editor", "Admin").',
       category: 'roles',
       inputSchema: {
         type: 'object',
@@ -45,62 +45,54 @@ export class RoleTools {
             minimum: 1,
             maximum: 500,
             default: 20,
-            description: 'Number of roles to return',
+            description: 'Number of roles to return.',
           },
           offset: {
             type: 'integer',
             minimum: 0,
             default: 0,
-            description: 'Number of roles to skip',
+            description: 'Pagination offset.',
           },
           sort: {
             type: 'string',
             enum: ['display_name', 'system_name', 'created_at', 'updated_at'],
             default: 'display_name',
-            description: 'Sort field',
+            description: 'Sort field.',
           },
           filter: {
             type: 'object',
             properties: {
               display_name: {
                 type: 'string',
-                description: 'Filter by role display name (partial match)',
+                description: 'Filter by name.',
               },
               system_name: {
                 type: 'string',
-                description: 'Filter by role system name (partial match)',
+                description: 'Filter by system identifier.',
               },
             },
-            description: 'Optional filters to apply',
+            description: 'Filters.',
           },
         },
       },
       examples: [
         {
-          description: 'List all roles',
+          description: 'List roles',
           input: {},
-          expected_output: 'Array of role objects with permissions',
-          use_case: 'Understanding available permission levels',
-        },
-        {
-          description: 'Find admin roles',
-          input: { filter: { display_name: 'admin' } },
-          expected_output: 'Roles containing "admin" in their name',
-          use_case: 'Finding administrative roles',
-        },
+          expected_output: 'List of roles',
+          use_case: 'Checking available roles',
+        }
       ],
       usage_patterns: [
-        'Use before assigning roles to users',
-        'Check available permission levels',
-        'Find specific roles by name',
+        'Use to find role IDs for assigning to users',
       ],
-      related_tools: ['bookstack_roles_read', 'bookstack_users_update'],
+      related_tools: ['bookstack_users_create'],
       error_codes: [
         {
           code: 'UNAUTHORIZED',
-          description: 'Authentication failed or insufficient permissions',
-          recovery_suggestion: 'Verify API token and admin permissions',
-        },
+          description: 'Insufficient permissions',
+          recovery_suggestion: 'Requires admin privileges',
+        }
       ],
       handler: async (params: any) => {
         this.logger.debug('Listing roles', params);
@@ -116,7 +108,7 @@ export class RoleTools {
   private createCreateRoleTool(): MCPTool {
     return {
       name: 'bookstack_roles_create',
-      description: 'Create a new role with display name, description, and permission settings',
+      description: 'Create a new user role with specific permissions.',
       inputSchema: {
         type: 'object',
         required: ['display_name'],
@@ -124,54 +116,55 @@ export class RoleTools {
           display_name: {
             type: 'string',
             maxLength: 180,
-            description: 'Role display name (required)',
+            description: 'Name of the role.',
           },
           description: {
             type: 'string',
             maxLength: 1000,
-            description: 'Role description',
+            description: 'Short description.',
           },
           mfa_enforced: {
             type: 'boolean',
             default: false,
-            description: 'Enforce multi-factor authentication for this role',
+            description: 'Require MFA for users in this role.',
           },
           external_auth_id: {
             type: 'string',
-            description: 'External authentication ID for LDAP/SAML roles',
+            description: 'External ID for LDAP/SSO syncing.',
           },
           permissions: {
             type: 'object',
             properties: {
-              'content-export': {
-                type: 'boolean',
-                description: 'Allow content export',
-              },
-              'settings-manage': {
-                type: 'boolean',
-                description: 'Allow settings management',
-              },
-              'users-manage': {
-                type: 'boolean',
-                description: 'Allow user management',
-              },
-              'user-roles-manage': {
-                type: 'boolean',
-                description: 'Allow role management',
-              },
-              'restrictions-manage-all': {
-                type: 'boolean',
-                description: 'Allow managing all restrictions',
-              },
-              'restrictions-manage-own': {
-                type: 'boolean',
-                description: 'Allow managing own restrictions',
-              },
+              'content-export': { type: 'boolean' },
+              'settings-manage': { type: 'boolean' },
+              'users-manage': { type: 'boolean' },
+              'user-roles-manage': { type: 'boolean' },
+              'restrictions-manage-all': { type: 'boolean' },
+              'restrictions-manage-own': { type: 'boolean' },
             },
-            description: 'Permission settings for the role',
+            description: 'System-level permissions.',
           },
         },
       },
+      examples: [
+        {
+          description: 'Create an editor role',
+          input: { display_name: 'Junior Editor', permissions: { 'content-export': true } },
+          expected_output: 'Role object',
+          use_case: 'Defining new access levels',
+        }
+      ],
+      usage_patterns: [
+        'Define clear roles to manage user access effectively',
+      ],
+      related_tools: ['bookstack_roles_list'],
+      error_codes: [
+        {
+          code: 'VALIDATION_ERROR',
+          description: 'Invalid name',
+          recovery_suggestion: 'Provide display_name',
+        }
+      ],
       handler: async (params: any) => {
         this.logger.info('Creating role', { display_name: params.display_name });
         const validatedParams = this.validator.validateParams<any>(params, 'roleCreate');
@@ -186,17 +179,36 @@ export class RoleTools {
   private createReadRoleTool(): MCPTool {
     return {
       name: 'bookstack_roles_read',
-      description: 'Get details of a specific role including all its permissions and settings',
+      description: 'Get details of a specific role, including its system permissions.',
       inputSchema: {
         type: 'object',
         required: ['id'],
         properties: {
           id: {
             type: 'integer',
-            description: 'Role ID to retrieve',
+            description: 'ID of the role.',
           },
         },
       },
+      examples: [
+        {
+          description: 'Read role details',
+          input: { id: 3 },
+          expected_output: 'Role object with permissions',
+          use_case: 'Checking what a role can do',
+        }
+      ],
+      usage_patterns: [
+        'Use to audit role capabilities',
+      ],
+      related_tools: ['bookstack_roles_list'],
+      error_codes: [
+        {
+          code: 'NOT_FOUND',
+          description: 'Role not found',
+          recovery_suggestion: 'Verify ID',
+        }
+      ],
       handler: async (params: any) => {
         const id = this.validator.validateId(params.id);
         this.logger.debug('Reading role', { id });
@@ -211,7 +223,7 @@ export class RoleTools {
   private createUpdateRoleTool(): MCPTool {
     return {
       name: 'bookstack_roles_update',
-      description: 'Update a role\'s details including name, description, and permission settings',
+      description: 'Update a role\'s name, description, or permissions.',
       inputSchema: {
         type: 'object',
         required: ['id'],
@@ -224,53 +236,54 @@ export class RoleTools {
             type: 'string',
             minLength: 1,
             maxLength: 180,
-            description: 'New role display name',
+            description: 'New display name',
           },
           description: {
             type: 'string',
             maxLength: 1000,
-            description: 'New role description',
+            description: 'New description',
           },
           mfa_enforced: {
             type: 'boolean',
-            description: 'New MFA enforcement setting',
+            description: 'Enforce MFA',
           },
           external_auth_id: {
             type: 'string',
-            description: 'New external authentication ID',
+            description: 'External ID',
           },
           permissions: {
             type: 'object',
             properties: {
-              'content-export': {
-                type: 'boolean',
-                description: 'Allow content export',
-              },
-              'settings-manage': {
-                type: 'boolean',
-                description: 'Allow settings management',
-              },
-              'users-manage': {
-                type: 'boolean',
-                description: 'Allow user management',
-              },
-              'user-roles-manage': {
-                type: 'boolean',
-                description: 'Allow role management',
-              },
-              'restrictions-manage-all': {
-                type: 'boolean',
-                description: 'Allow managing all restrictions',
-              },
-              'restrictions-manage-own': {
-                type: 'boolean',
-                description: 'Allow managing own restrictions',
-              },
+              'content-export': { type: 'boolean' },
+              'settings-manage': { type: 'boolean' },
+              'users-manage': { type: 'boolean' },
+              'user-roles-manage': { type: 'boolean' },
+              'restrictions-manage-all': { type: 'boolean' },
+              'restrictions-manage-own': { type: 'boolean' },
             },
-            description: 'New permission settings for the role',
+            description: 'New permissions (merges/updates existing)',
           },
         },
       },
+      examples: [
+        {
+          description: 'Grant export permission',
+          input: { id: 3, permissions: { 'content-export': true } },
+          expected_output: 'Updated role',
+          use_case: 'Elevating privileges',
+        }
+      ],
+      usage_patterns: [
+        'Read role first to see current permissions',
+      ],
+      related_tools: ['bookstack_roles_read'],
+      error_codes: [
+        {
+          code: 'NOT_FOUND',
+          description: 'Role not found',
+          recovery_suggestion: 'Verify ID',
+        }
+      ],
       handler: async (params: any) => {
         const id = this.validator.validateId(params.id);
         this.logger.info('Updating role', { id, fields: Object.keys(params).filter(k => k !== 'id') });
@@ -287,21 +300,40 @@ export class RoleTools {
   private createDeleteRoleTool(): MCPTool {
     return {
       name: 'bookstack_roles_delete',
-      description: 'Delete a role with option to migrate users to another role',
+      description: 'Delete a role. You can optionally migrate users from this role to another one.',
       inputSchema: {
         type: 'object',
         required: ['id'],
         properties: {
           id: {
             type: 'integer',
-            description: 'Role ID to delete',
+            description: 'ID of the role to delete',
           },
           migrate_ownership_id: {
             type: 'integer',
-            description: 'Role ID to migrate users to (optional)',
+            description: 'ID of another role to move assigned users to.',
           },
         },
       },
+      examples: [
+        {
+          description: 'Delete role and migrate users',
+          input: { id: 3, migrate_ownership_id: 2 },
+          expected_output: 'Success message',
+          use_case: 'Consolidating roles',
+        }
+      ],
+      usage_patterns: [
+        'Always consider where existing users will go when deleting a role',
+      ],
+      related_tools: ['bookstack_roles_list'],
+      error_codes: [
+        {
+          code: 'NOT_FOUND',
+          description: 'Role not found',
+          recovery_suggestion: 'Verify ID',
+        }
+      ],
       handler: async (params: any) => {
         const id = this.validator.validateId(params.id);
         this.logger.warn('Deleting role', { id, migrate_to: params.migrate_ownership_id });

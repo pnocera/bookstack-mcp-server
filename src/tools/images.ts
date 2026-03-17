@@ -121,7 +121,7 @@ export class ImageTools {
   private createCreateImageTool(): MCPTool {
     return {
       name: 'bookstack_images_create',
-      description: 'Create a new image by uploading an image file to the gallery',
+      description: 'Upload a new image to the gallery. These images can be used in pages.',
       inputSchema: {
         type: 'object',
         required: ['name', 'image'],
@@ -129,24 +129,43 @@ export class ImageTools {
           name: {
             type: 'string',
             maxLength: 255,
-            description: 'Image name/title (required)',
+            description: 'Image title.',
           },
           image: {
             type: 'string',
-            description: 'Base64 encoded image content (required)',
+            description: 'Base64 encoded image content.',
           },
           type: {
             type: 'string',
             enum: ['gallery', 'drawio'],
             default: 'gallery',
-            description: 'Image type',
+            description: 'Type of image.',
           },
           uploaded_to: {
             type: 'integer',
-            description: 'Page ID to associate the image with',
+            description: 'ID of the page this image is initially associated with.',
           },
         },
       },
+      examples: [
+        {
+          description: 'Upload a screenshot',
+          input: { name: 'Dashboard Screenshot', image: '<base64_content>', uploaded_to: 5 },
+          expected_output: 'Image object with URL',
+          use_case: 'Adding visuals to documentation',
+        }
+      ],
+      usage_patterns: [
+        'Upload images first, then use the returned URL to embed them in page HTML/Markdown',
+      ],
+      related_tools: ['bookstack_pages_update'],
+      error_codes: [
+        {
+          code: 'VALIDATION_ERROR',
+          description: 'Missing image content',
+          recovery_suggestion: 'Provide valid base64 string',
+        }
+      ],
       handler: async (params: any) => {
         this.logger.info('Creating image', { name: params.name, type: params.type });
         const validatedParams = this.validator.validateParams<any>(params, 'imageCreate');
@@ -161,17 +180,36 @@ export class ImageTools {
   private createReadImageTool(): MCPTool {
     return {
       name: 'bookstack_images_read',
-      description: 'Get details of a specific image including URLs and metadata',
+      description: 'Get details of a specific image, including its display URL and thumbnail URLs.',
       inputSchema: {
         type: 'object',
         required: ['id'],
         properties: {
           id: {
             type: 'integer',
-            description: 'Image ID to retrieve',
+            description: 'The unique ID of the image.',
           },
         },
       },
+      examples: [
+        {
+          description: 'Get image URL',
+          input: { id: 10 },
+          expected_output: 'Image object with url field',
+          use_case: 'Retrieving image source for embedding',
+        }
+      ],
+      usage_patterns: [
+        'Use to check if an image exists and get its URL',
+      ],
+      related_tools: ['bookstack_images_list'],
+      error_codes: [
+        {
+          code: 'NOT_FOUND',
+          description: 'Image not found',
+          recovery_suggestion: 'Verify ID',
+        }
+      ],
       handler: async (params: any) => {
         const id = this.validator.validateId(params.id);
         this.logger.debug('Reading image', { id });
@@ -186,31 +224,50 @@ export class ImageTools {
   private createUpdateImageTool(): MCPTool {
     return {
       name: 'bookstack_images_update',
-      description: 'Update an image\'s details such as name or replace the image content',
+      description: 'Update an image\'s details. Can be used to rename or replace the actual image file.',
       inputSchema: {
         type: 'object',
         required: ['id'],
         properties: {
           id: {
             type: 'integer',
-            description: 'Image ID to update',
+            description: 'ID of the image to update',
           },
           name: {
             type: 'string',
             minLength: 1,
             maxLength: 255,
-            description: 'New image name/title',
+            description: 'New title',
           },
           image: {
             type: 'string',
-            description: 'New Base64 encoded image content to replace existing image',
+            description: 'New Base64 encoded image content (Replaces existing image)',
           },
           uploaded_to: {
             type: 'integer',
-            description: 'Move image to different page association',
+            description: 'New page ID association',
           },
         },
       },
+      examples: [
+        {
+          description: 'Update image title',
+          input: { id: 10, name: 'New Title' },
+          expected_output: 'Updated image object',
+          use_case: 'Correcting metadata',
+        }
+      ],
+      usage_patterns: [
+        'Replacing the image content updates it everywhere it is used (since URL stays same usually, but verify cache)',
+      ],
+      related_tools: ['bookstack_images_read'],
+      error_codes: [
+        {
+          code: 'NOT_FOUND',
+          description: 'Image not found',
+          recovery_suggestion: 'Verify ID',
+        }
+      ],
       handler: async (params: any) => {
         const id = this.validator.validateId(params.id);
         this.logger.info('Updating image', { id, fields: Object.keys(params).filter(k => k !== 'id') });
@@ -227,17 +284,36 @@ export class ImageTools {
   private createDeleteImageTool(): MCPTool {
     return {
       name: 'bookstack_images_delete',
-      description: 'Delete an image permanently from the gallery (this action cannot be undone)',
+      description: 'Permanently delete an image from the gallery. Broken images will appear in pages where this was used.',
       inputSchema: {
         type: 'object',
         required: ['id'],
         properties: {
           id: {
             type: 'integer',
-            description: 'Image ID to delete',
+            description: 'ID of the image to delete',
           },
         },
       },
+      examples: [
+        {
+          description: 'Delete an image',
+          input: { id: 10 },
+          expected_output: 'Success message',
+          use_case: 'Cleaning up unused assets',
+        }
+      ],
+      usage_patterns: [
+        'Ensure the image is not used in important pages before deleting',
+      ],
+      related_tools: ['bookstack_images_list'],
+      error_codes: [
+        {
+          code: 'NOT_FOUND',
+          description: 'Image not found',
+          recovery_suggestion: 'Verify ID',
+        }
+      ],
       handler: async (params: any) => {
         const id = this.validator.validateId(params.id);
         this.logger.warn('Deleting image', { id });
