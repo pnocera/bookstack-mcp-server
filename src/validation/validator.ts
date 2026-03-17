@@ -194,6 +194,7 @@ const ValidationSchemas = {
   roleCreate: z.object({
     display_name: z.string().min(1).max(255),
     description: z.string().max(1900).optional(),
+    external_auth_id: z.string().optional(),
     permissions: z.array(z.string()).optional(),
     mfa_enforced: z.boolean().optional(),
   }),
@@ -201,6 +202,7 @@ const ValidationSchemas = {
   roleUpdate: z.object({
     display_name: z.string().min(1).max(255).optional(),
     description: z.string().max(1900).optional(),
+    external_auth_id: z.string().optional(),
     permissions: z.array(z.string()).optional(),
     mfa_enforced: z.boolean().optional(),
   }),
@@ -277,13 +279,20 @@ const ValidationSchemas = {
 
   // Content Permissions
   contentPermissionsUpdate: z.object({
-    permissions: z.array(z.object({
+    role_permissions: z.array(z.object({
       role_id: z.number(),
       view: z.boolean(),
       create: z.boolean(),
       update: z.boolean(),
       delete: z.boolean(),
-    })),
+    })).optional(),
+    fallback_permissions: z.object({
+      inheriting: z.boolean(),
+      view: z.boolean().optional(),
+      create: z.boolean().optional(),
+      update: z.boolean().optional(),
+      delete: z.boolean().optional(),
+    }).optional(),
   }),
 
   // Export
