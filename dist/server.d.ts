@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
+import { Config } from './config/manager';
 /**
  * BookStack MCP Server
  *
@@ -20,7 +22,7 @@ export declare class BookStackMCPServer {
     private validator;
     private tools;
     private resources;
-    constructor();
+    constructor(configOverrides?: Partial<Config>);
     /**
      * Setup all tools for BookStack API endpoints
      */
@@ -34,13 +36,13 @@ export declare class BookStackMCPServer {
      */
     private setupHandlers;
     /**
-     * Start the MCP server
+     * Connect to a transport
      */
-    start(): Promise<void>;
+    connect(transport: Transport): Promise<void>;
     /**
      * Shutdown the server gracefully
      */
-    private shutdown;
+    shutdown(): Promise<void>;
     /**
      * Get server health status
      */

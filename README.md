@@ -2,6 +2,11 @@
 
 Connect BookStack to Claude and other AI assistants through the Model Context Protocol (MCP). This server provides complete access to your BookStack knowledge base with 47+ tools covering all API endpoints.
 
+This server supports two transport modes: **Streamable HTTP** and **Stdio**.
+
+- **Streamable HTTP (Default)**: A stateless HTTP transport. Authentication parameters can be overridden per-request using HTTP headers (`x-bookstack-url` and `x-bookstack-token`).
+- **Stdio Mode**: Standard input/output for local integration (e.g., with Claude Desktop). Set `MCP_TRANSPORT=stdio` to enable.
+
 ## ✨ What You Get
 
 - **Complete BookStack Integration** - Access all your books, pages, chapters, and content
@@ -16,17 +21,20 @@ Connect BookStack to Claude and other AI assistants through the Model Context Pr
 # Install globally
 npm install -g bookstack-mcp-server
 
-# Or run directly
+# Or run directly (starts HTTP server by default)
 npx bookstack-mcp-server
 ```
 
 ### Add to Claude
 
+To use with Claude Desktop (requires Stdio mode):
+
 ```bash
 # For Claude Code
 claude mcp add bookstack npx bookstack-mcp-server \
   --env BOOKSTACK_BASE_URL=https://your-bookstack.com/api \
-  --env BOOKSTACK_API_TOKEN=token_id:token_secret
+  --env BOOKSTACK_API_TOKEN=token_id:token_secret \
+  --env MCP_TRANSPORT=stdio
 ```
 
 ### Configuration
@@ -36,6 +44,8 @@ Set these environment variables:
 ```bash
 export BOOKSTACK_BASE_URL="https://your-bookstack.com/api"
 export BOOKSTACK_API_TOKEN="token_id:token_secret"
+# Optional: Set transport mode (http or stdio)
+export MCP_TRANSPORT="http" 
 ```
 
 > 💡 **Token Format**: Combine your BookStack Token ID and Token Secret as `token_id:token_secret`

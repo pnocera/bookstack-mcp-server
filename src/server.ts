@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 
+import express from 'express';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import {
   CallToolRequestSchema,
   ListResourcesRequestSchema,
@@ -9,7 +12,7 @@ import {
   ReadResourceRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { BookStackClient } from './api/client';
-import { ConfigManager } from './config/manager';
+import { ConfigManager, Config } from './config/manager';
 import { Logger } from './utils/logger';
 import { ErrorHandler } from './utils/errors';
 import { ValidationHandler } from './validation/validator';
@@ -57,8 +60,17 @@ export class BookStackMCPServer {
   private tools: Map<string, MCPTool> = new Map();
   private resources: Map<string, MCPResource> = new Map();
 
-  constructor() {
-    const config = ConfigManager.getInstance().getConfig();
+  constructor(configOverrides?: Partial<Config>) {
+    const baseConfig = ConfigManager.getInstance().getConfig();
+    
+    // Merge overrides
+    const config = { ...baseConfig };
+    if (configOverrides) {
+        if (configOverrides.bookstack) {
+            config.bookstack = { ...config.bookstack, ...configOverrides.bookstack };
+        }
+        // Add other overrides as needed
+    }
     
     this.logger = Logger.getInstance();
     this.errorHandler = new ErrorHandler(this.logger);
@@ -148,11 +160,27 @@ export class BookStackMCPServer {
   private setupHandlers(): void {
     // List tools handler
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
-      const tools = Array.from(this.tools.values()).map(tool => ({
-        name: tool.name,
-        description: tool.description,
-        inputSchema: tool.inputSchema,
-      }));
+      const tools = Array.from(this.tools.values()).map(tool => {
+        let enhancedDescription = tool.description;
+
+        // Append usage patterns
+        if (tool.usage_patterns && tool.usage_patterns.length > 0) {
+          enhancedDescription += '\n\nUsage Patterns:\n' + tool.usage_patterns.map(p => `- ${p}`).join('\n');
+        }
+
+        // Append examples
+        if (tool.examples && tool.examples.length > 0) {
+          enhancedDescription += '\n\nExamples:\n' + tool.examples.map(e => 
+            `- ${e.description}\n  Input: ${JSON.stringify(e.input)}`
+          ).join('\n');
+        }
+
+        return {
+          name: tool.name,
+          description: enhancedDescription,
+          inputSchema: tool.inputSchema,
+        };
+      });
 
       this.logger.debug(`Listed ${tools.length} tools`);
       return { tools };
@@ -247,32 +275,23 @@ export class BookStackMCPServer {
   }
 
   /**
-   * Start the MCP server
+   * Connect to a transport
    */
-  async start(): Promise<void> {
-    const transport = new StdioServerTransport();
+  async connect(transport: Transport): Promise<void> {
     await this.server.connect(transport);
-    
-    this.logger.info('BookStack MCP Server started and listening on stdio');
-
-    // Handle graceful shutdown
-    process.on('SIGINT', () => this.shutdown());
-    process.on('SIGTERM', () => this.shutdown());
   }
 
   /**
    * Shutdown the server gracefully
    */
-  private async shutdown(): Promise<void> {
+  public async shutdown(): Promise<void> {
     this.logger.info('Shutting down BookStack MCP Server...');
     
     try {
       await this.server.close();
       this.logger.info('Server shutdown complete');
-      process.exit(0);
     } catch (error) {
       this.logger.error('Error during shutdown', error);
-      process.exit(1);
     }
   }
 
@@ -309,11 +328,61 @@ export class BookStackMCPServer {
 
 // Start server if run directly
 if (require.main === module) {
-  const server = new BookStackMCPServer();
-  server.start().catch((error) => {
-    console.error('Failed to start server:', error);
-    process.exit(1);
-  });
+  const transport = process.env.MCP_TRANSPORT || 'http';
+
+  if (transport === 'stdio') {
+    const server = new BookStackMCPServer();
+    const stdioTransport = new StdioServerTransport();
+    
+    server.connect(stdioTransport).catch((error) => {
+      console.error('Failed to start server:', error);
+      process.exit(1);
+    });
+
+    console.error('BookStack MCP Server started and listening on stdio');
+
+    // Handle graceful shutdown
+    process.on('SIGINT', () => server.shutdown());
+    process.on('SIGTERM', () => server.shutdown());
+  } else {
+    const app = express();
+    app.use(express.json());
+    const config = ConfigManager.getInstance().getConfig();
+
+    app.post('/message', async (req, res) => {
+      try {
+        // Extract BookStack URL and Token from headers
+        const bookstackUrl = req.headers['x-bookstack-url'] as string;
+        const bookstackToken = req.headers['x-bookstack-token'] as string;
+
+        const configOverrides: Partial<Config> = {
+          bookstack: {
+            baseUrl: bookstackUrl || config.bookstack.baseUrl,
+            apiToken: bookstackToken || config.bookstack.apiToken,
+            timeout: config.bookstack.timeout
+          }
+        };
+
+        const server = new BookStackMCPServer(configOverrides);
+        const transport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: undefined,
+          enableJsonResponse: true,
+        });
+        await server.connect(transport);
+        await transport.handleRequest(req, res, req.body);
+      } catch (error) {
+        console.error('Error handling request:', error);
+        if (!res.headersSent) {
+          res.status(500).send('Internal Server Error');
+        }
+      }
+    });
+
+    const port = config.server.port || 3000;
+    app.listen(port, () => {
+      console.log(`BookStack MCP Server listening on port ${port}`);
+    });
+  }
 }
 
 export default BookStackMCPServer;

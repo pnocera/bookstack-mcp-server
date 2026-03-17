@@ -26,11 +26,22 @@ class SystemTools {
     createSystemInfoTool() {
         return {
             name: 'bookstack_system_info',
-            description: 'Get comprehensive system information about the BookStack instance',
+            description: 'Get information about the BookStack instance, including version, base URL, and configuration limits.',
             inputSchema: {
                 type: 'object',
                 properties: {},
             },
+            examples: [
+                {
+                    description: 'Check system info',
+                    input: {},
+                    expected_output: 'System info object',
+                    use_case: 'Verifying compatibility',
+                }
+            ],
+            usage_patterns: [
+                'Call on startup to verify connection and version',
+            ],
             handler: async (_params) => {
                 this.logger.debug('Getting system information');
                 return await this.client.getSystemInfo();
