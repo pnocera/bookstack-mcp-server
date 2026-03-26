@@ -115,7 +115,7 @@ class AttachmentTools {
     createCreateAttachmentTool() {
         return {
             name: 'bookstack_attachments_create',
-            description: 'Create a new attachment by uploading a file or linking to an external URL. Attachments are always associated with a specific page.',
+            description: 'Create a new attachment by uploading a file or linking to an external URL.',
             inputSchema: {
                 type: 'object',
                 required: ['uploaded_to', 'name'],
@@ -131,7 +131,7 @@ class AttachmentTools {
                     },
                     file: {
                         type: 'string',
-                        description: 'Base64 encoded file content. (Required if link is not provided)',
+                        description: 'Base64 encoded file content.',
                     },
                     link: {
                         type: 'string',

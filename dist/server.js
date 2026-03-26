@@ -35,18 +35,15 @@ const chapters_2 = require("./resources/chapters");
 const shelves_2 = require("./resources/shelves");
 const users_2 = require("./resources/users");
 const search_2 = require("./resources/search");
+const read_only_allowlist_1 = require("./tools/read-only-allowlist");
 /**
  * BookStack MCP Server
  *
- * Provides comprehensive access to BookStack knowledge management system
+ * Provides access to BookStack knowledge management system
  * through the Model Context Protocol (MCP).
  *
- * Features:
- * - 47 tools covering all BookStack API endpoints
- * - Resource access for all content types
- * - Context7 integration for enhanced documentation
- * - Comprehensive error handling and validation
- * - Rate limiting and retry policies
+ * When PUBLIC_READ_ONLY=true (default), only read-only tools are exposed
+ * and per-request credential header overrides are rejected.
  */
 class BookStackMCPServer {
     constructor(configOverrides) {
@@ -59,8 +56,8 @@ class BookStackMCPServer {
             if (configOverrides.bookstack) {
                 config.bookstack = { ...config.bookstack, ...configOverrides.bookstack };
             }
-            // Add other overrides as needed
         }
+        this.config = config;
         this.logger = logger_1.Logger.getInstance();
         this.errorHandler = new errors_1.ErrorHandler(this.logger);
         this.validator = new validator_1.ValidationHandler(config.validation);
@@ -83,69 +80,79 @@ class BookStackMCPServer {
             tools: this.tools.size,
             resources: this.resources.size,
             baseUrl: config.bookstack.baseUrl,
+            publicReadOnly: config.security.publicReadOnly,
         });
     }
     /**
-     * Setup all tools for BookStack API endpoints
+     * Setup tools. When publicReadOnly is true, only tools in READ_ONLY_TOOL_ALLOWLIST
+     * are registered. Classes that provide no read-only tools are not instantiated.
      */
     setupTools() {
+        const isReadOnly = this.config.security.publicReadOnly;
+        // Classes that contain at least some read-only tools
         const toolClasses = [
             new books_1.BookTools(this.client, this.validator, this.logger),
             new pages_1.PageTools(this.client, this.validator, this.logger),
             new chapters_1.ChapterTools(this.client, this.validator, this.logger),
             new shelves_1.ShelfTools(this.client, this.validator, this.logger),
-            new users_1.UserTools(this.client, this.validator, this.logger),
-            new roles_1.RoleTools(this.client, this.validator, this.logger),
-            new attachments_1.AttachmentTools(this.client, this.validator, this.logger),
-            new images_1.ImageTools(this.client, this.validator, this.logger),
             new search_1.SearchTools(this.client, this.validator, this.logger),
-            new recyclebin_1.RecycleBinTools(this.client, this.validator, this.logger),
-            new permissions_1.PermissionTools(this.client, this.validator, this.logger),
-            new audit_1.AuditTools(this.client, this.validator, this.logger),
             new system_1.SystemTools(this.client, this.validator, this.logger),
-            new server_info_1.ServerInfoTools(this.logger, this.tools, this.resources),
         ];
-        // Register all tools
+        // Write-only classes — only instantiate when not in read-only mode
+        if (!isReadOnly) {
+            toolClasses.push(new users_1.UserTools(this.client, this.validator, this.logger), new roles_1.RoleTools(this.client, this.validator, this.logger), new attachments_1.AttachmentTools(this.client, this.validator, this.logger), new images_1.ImageTools(this.client, this.validator, this.logger), new recyclebin_1.RecycleBinTools(this.client, this.validator, this.logger), new permissions_1.PermissionTools(this.client, this.validator, this.logger), new audit_1.AuditTools(this.client, this.validator, this.logger));
+        }
         toolClasses.forEach((toolClass) => {
             toolClass.getTools().forEach((tool) => {
-                this.tools.set(tool.name, tool);
+                if (!isReadOnly || read_only_allowlist_1.READ_ONLY_TOOL_ALLOWLIST.has(tool.name)) {
+                    this.tools.set(tool.name, tool);
+                }
             });
         });
-        this.logger.info(`Registered ${this.tools.size} tools`);
+        // ServerInfoTools must be instantiated AFTER the tools map is populated
+        // because it receives the map by reference and reads it lazily in handlers.
+        const serverInfoTools = new server_info_1.ServerInfoTools(this.logger, this.tools, this.resources);
+        serverInfoTools.getTools().forEach((tool) => {
+            if (!isReadOnly || read_only_allowlist_1.READ_ONLY_TOOL_ALLOWLIST.has(tool.name)) {
+                this.tools.set(tool.name, tool);
+            }
+        });
+        this.logger.info(`Registered ${this.tools.size} tools`, { publicReadOnly: isReadOnly });
     }
     /**
-     * Setup all resources for BookStack content access
+     * Setup resources. When publicReadOnly is true, UserResources are excluded.
      */
     setupResources() {
+        const isReadOnly = this.config.security.publicReadOnly;
         const resourceClasses = [
             new books_2.BookResources(this.client, this.logger),
             new pages_2.PageResources(this.client, this.logger),
             new chapters_2.ChapterResources(this.client, this.logger),
             new shelves_2.ShelfResources(this.client, this.logger),
-            new users_2.UserResources(this.client, this.logger),
             new search_2.SearchResources(this.client, this.logger),
         ];
-        // Register all resources
+        if (!isReadOnly) {
+            resourceClasses.push(new users_2.UserResources(this.client, this.logger));
+        }
         resourceClasses.forEach((resourceClass) => {
             resourceClass.getResources().forEach((resource) => {
                 this.resources.set(resource.uri, resource);
             });
         });
-        this.logger.info(`Registered ${this.resources.size} resources`);
+        this.logger.info(`Registered ${this.resources.size} resources`, { publicReadOnly: isReadOnly });
     }
     /**
      * Setup MCP server request handlers
      */
     setupHandlers() {
+        const isReadOnly = this.config.security.publicReadOnly;
         // List tools handler
         this.server.setRequestHandler(types_js_1.ListToolsRequestSchema, async () => {
             const tools = Array.from(this.tools.values()).map(tool => {
                 let enhancedDescription = tool.description;
-                // Append usage patterns
                 if (tool.usage_patterns && tool.usage_patterns.length > 0) {
                     enhancedDescription += '\n\nUsage Patterns:\n' + tool.usage_patterns.map(p => `- ${p}`).join('\n');
                 }
-                // Append examples
                 if (tool.examples && tool.examples.length > 0) {
                     enhancedDescription += '\n\nExamples:\n' + tool.examples.map(e => `- ${e.description}\n  Input: ${JSON.stringify(e.input)}`).join('\n');
                 }
@@ -162,6 +169,10 @@ class BookStackMCPServer {
         this.server.setRequestHandler(types_js_1.CallToolRequestSchema, async (request) => {
             const { name, arguments: args } = request.params;
             this.logger.info(`Tool called: ${name}`, { arguments: args });
+            // Defense-in-depth: block any tool not in the allowlist, even if somehow registered
+            if (isReadOnly && !read_only_allowlist_1.READ_ONLY_TOOL_ALLOWLIST.has(name)) {
+                throw new Error(`Tool disabled on this public read-only server: ${name}`);
+            }
             const tool = this.tools.get(name);
             if (!tool) {
                 throw new Error(`Unknown tool: ${name}`);
@@ -196,12 +207,10 @@ class BookStackMCPServer {
         this.server.setRequestHandler(types_js_1.ReadResourceRequestSchema, async (request) => {
             const { uri } = request.params;
             this.logger.info(`Resource requested: ${uri}`);
-            // Find matching resource by URI pattern
             let matchedResource;
             let _uriMatch;
             for (const [pattern, resource] of this.resources.entries()) {
                 if (pattern.includes('{')) {
-                    // Dynamic URI pattern
                     const regexPattern = pattern.replace(/\{[^}]+\}/g, '([^/]+)');
                     const regex = new RegExp(`^${regexPattern}$`);
                     if (regex.test(uri)) {
@@ -211,7 +220,6 @@ class BookStackMCPServer {
                     }
                 }
                 else if (pattern === uri) {
-                    // Exact match
                     matchedResource = resource;
                     break;
                 }
@@ -292,7 +300,6 @@ if (require.main === module) {
             process.exit(1);
         });
         console.error('BookStack MCP Server started and listening on stdio');
-        // Handle graceful shutdown
         process.on('SIGINT', () => server.shutdown());
         process.on('SIGTERM', () => server.shutdown());
     }
@@ -300,25 +307,38 @@ if (require.main === module) {
         const app = (0, express_1.default)();
         app.use(express_1.default.json());
         const config = manager_1.ConfigManager.getInstance().getConfig();
+        // Health check endpoint — no BookStack call, safe for liveness probes
+        app.get('/healthz', (_req, res) => {
+            res.json({ ok: true });
+        });
         app.post('/message', async (req, res) => {
             try {
-                // Extract BookStack URL and Token from headers
                 const bookstackUrl = req.headers['x-bookstack-url'];
                 const bookstackToken = req.headers['x-bookstack-token'];
-                const configOverrides = {
-                    bookstack: {
+                // Reject per-request credential overrides when not explicitly allowed
+                if (!config.security.allowBookstackHeaderOverrides) {
+                    if (bookstackUrl || bookstackToken) {
+                        res.status(400).json({
+                            error: 'Per-request BookStack override headers are disabled on this server',
+                        });
+                        return;
+                    }
+                }
+                const configOverrides = {};
+                if (config.security.allowBookstackHeaderOverrides && (bookstackUrl || bookstackToken)) {
+                    configOverrides.bookstack = {
                         baseUrl: bookstackUrl || config.bookstack.baseUrl,
                         apiToken: bookstackToken || config.bookstack.apiToken,
-                        timeout: config.bookstack.timeout
-                    }
-                };
+                        timeout: config.bookstack.timeout,
+                    };
+                }
                 const server = new BookStackMCPServer(configOverrides);
-                const transport = new streamableHttp_js_1.StreamableHTTPServerTransport({
+                const mcpTransport = new streamableHttp_js_1.StreamableHTTPServerTransport({
                     sessionIdGenerator: undefined,
                     enableJsonResponse: true,
                 });
-                await server.connect(transport);
-                await transport.handleRequest(req, res, req.body);
+                await server.connect(mcpTransport);
+                await mcpTransport.handleRequest(req, res, req.body);
             }
             catch (error) {
                 console.error('Error handling request:', error);
@@ -330,6 +350,8 @@ if (require.main === module) {
         const port = config.server.port || 3000;
         app.listen(port, () => {
             console.log(`BookStack MCP Server listening on port ${port}`);
+            console.log(`Public read-only mode: ${config.security.publicReadOnly}`);
+            console.log(`Header overrides allowed: ${config.security.allowBookstackHeaderOverrides}`);
         });
     }
 }

@@ -76,14 +76,20 @@ export declare const ConfigSchema: z.ZodObject<{
         corsEnabled: z.ZodDefault<z.ZodBoolean>;
         corsOrigin: z.ZodDefault<z.ZodString>;
         helmetEnabled: z.ZodDefault<z.ZodBoolean>;
+        publicReadOnly: z.ZodDefault<z.ZodBoolean>;
+        allowBookstackHeaderOverrides: z.ZodDefault<z.ZodBoolean>;
     }, "strip", z.ZodTypeAny, {
         corsEnabled: boolean;
         corsOrigin: string;
         helmetEnabled: boolean;
+        publicReadOnly: boolean;
+        allowBookstackHeaderOverrides: boolean;
     }, {
         corsEnabled?: boolean | undefined;
         corsOrigin?: string | undefined;
         helmetEnabled?: boolean | undefined;
+        publicReadOnly?: boolean | undefined;
+        allowBookstackHeaderOverrides?: boolean | undefined;
     }>;
     development: z.ZodObject<{
         nodeEnv: z.ZodDefault<z.ZodEnum<["development", "production", "test"]>>;
@@ -127,6 +133,8 @@ export declare const ConfigSchema: z.ZodObject<{
         corsEnabled: boolean;
         corsOrigin: string;
         helmetEnabled: boolean;
+        publicReadOnly: boolean;
+        allowBookstackHeaderOverrides: boolean;
     };
     development: {
         debug: boolean;
@@ -164,6 +172,8 @@ export declare const ConfigSchema: z.ZodObject<{
         corsEnabled?: boolean | undefined;
         corsOrigin?: string | undefined;
         helmetEnabled?: boolean | undefined;
+        publicReadOnly?: boolean | undefined;
+        allowBookstackHeaderOverrides?: boolean | undefined;
     };
     development: {
         debug?: boolean | undefined;

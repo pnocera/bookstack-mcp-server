@@ -41,6 +41,8 @@ exports.ConfigSchema = zod_1.z.object({
         corsEnabled: zod_1.z.boolean().default(true),
         corsOrigin: zod_1.z.string().default('*'),
         helmetEnabled: zod_1.z.boolean().default(true),
+        publicReadOnly: zod_1.z.boolean().default(true),
+        allowBookstackHeaderOverrides: zod_1.z.boolean().default(false),
     }),
     development: zod_1.z.object({
         nodeEnv: zod_1.z.enum(['development', 'production', 'test']).default('development'),
@@ -74,7 +76,7 @@ class ConfigManager {
             server: {
                 name: process.env.SERVER_NAME || 'bookstack-mcp-server',
                 version: process.env.SERVER_VERSION || '1.0.0',
-                port: parseInt(process.env.SERVER_PORT || '3000'),
+                port: parseInt(process.env.PORT || process.env.SERVER_PORT || '3000'),
             },
             rateLimit: {
                 requestsPerMinute: parseInt(process.env.RATE_LIMIT_REQUESTS_PER_MINUTE || '60'),
@@ -97,6 +99,8 @@ class ConfigManager {
                 corsEnabled: process.env.CORS_ENABLED !== 'false',
                 corsOrigin: process.env.CORS_ORIGIN || '*',
                 helmetEnabled: process.env.HELMET_ENABLED !== 'false',
+                publicReadOnly: process.env.PUBLIC_READ_ONLY !== 'false',
+                allowBookstackHeaderOverrides: process.env.ALLOW_BOOKSTACK_HEADER_OVERRIDES === 'true',
             },
             development: {
                 nodeEnv: process.env.NODE_ENV || 'development',

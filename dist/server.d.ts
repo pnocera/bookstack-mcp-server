@@ -4,15 +4,11 @@ import { Config } from './config/manager';
 /**
  * BookStack MCP Server
  *
- * Provides comprehensive access to BookStack knowledge management system
+ * Provides access to BookStack knowledge management system
  * through the Model Context Protocol (MCP).
  *
- * Features:
- * - 47 tools covering all BookStack API endpoints
- * - Resource access for all content types
- * - Context7 integration for enhanced documentation
- * - Comprehensive error handling and validation
- * - Rate limiting and retry policies
+ * When PUBLIC_READ_ONLY=true (default), only read-only tools are exposed
+ * and per-request credential header overrides are rejected.
  */
 export declare class BookStackMCPServer {
     private server;
@@ -22,13 +18,15 @@ export declare class BookStackMCPServer {
     private validator;
     private tools;
     private resources;
+    private config;
     constructor(configOverrides?: Partial<Config>);
     /**
-     * Setup all tools for BookStack API endpoints
+     * Setup tools. When publicReadOnly is true, only tools in READ_ONLY_TOOL_ALLOWLIST
+     * are registered. Classes that provide no read-only tools are not instantiated.
      */
     private setupTools;
     /**
-     * Setup all resources for BookStack content access
+     * Setup resources. When publicReadOnly is true, UserResources are excluded.
      */
     private setupResources;
     /**

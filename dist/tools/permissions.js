@@ -99,14 +99,14 @@ class PermissionTools {
                                 type: 'boolean',
                                 description: 'If true, inherits permissions from parent (default).',
                             },
-                            restricted: {
+                            view: {
                                 type: 'boolean',
                                 description: 'If true, restricts access to only specified roles/users.',
                             },
                         },
                         description: 'General settings.',
                     },
-                    permissions: {
+                    role_permissions: {
                         type: 'array',
                         items: {
                             type: 'object',

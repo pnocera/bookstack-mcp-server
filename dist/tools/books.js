@@ -120,17 +120,17 @@ class BookTools {
                     name: {
                         type: 'string',
                         maxLength: 255,
-                        description: 'The name of the book. Must be unique within the instance.',
+                        description: 'The unique name of the book.',
                     },
                     description: {
                         type: 'string',
                         maxLength: 1900,
-                        description: 'A short description of the book\'s purpose or contents.',
+                        description: 'The book\'s purpose or contents.',
                     },
                     description_html: {
                         type: 'string',
                         maxLength: 2000,
-                        description: 'HTML formatted description. Overrides the plain text description if provided.',
+                        description: 'HTML formatted description. Overrides the plain text description.',
                     },
                     tags: {
                         type: 'array',
@@ -139,11 +139,11 @@ class BookTools {
                             properties: {
                                 name: {
                                     type: 'string',
-                                    description: 'Tag label (e.g., "Category")',
+                                    description: 'Tag label (e.g., "category")',
                                 },
                                 value: {
                                     type: 'string',
-                                    description: 'Tag value (e.g., "API Docs")',
+                                    description: 'Tag value (e.g., "recipes")',
                                 },
                             },
                             required: ['name', 'value'],

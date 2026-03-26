@@ -26,7 +26,7 @@ class SearchTools {
     createSearchTool() {
         return {
             name: 'bookstack_search',
-            description: 'Search across all BookStack content (Books, Chapters, Pages, Shelves). Supports advanced query syntax for filtering.',
+            description: 'Search across all BookStack content. Supports advanced query syntax. Note: Page results only contain snippets of content. To read the full content of a page, use the `bookstack_pages_read` tool with the page ID from the search results.',
             inputSchema: {
                 type: 'object',
                 required: ['query'],
@@ -66,10 +66,10 @@ class SearchTools {
                 }
             ],
             usage_patterns: [
-                'Use specific filters like `{type:book}` to narrow down results',
-                'Use quotes for exact match searches: `"error code 500"`',
+                'Search for pages with desired info, then read the page.',
+                'Use non-page filters like `{type:book}` to search only titles without the pages. Note: this skips searching book content.',
             ],
-            related_tools: ['bookstack_pages_list', 'bookstack_books_list'],
+            related_tools: ['bookstack_pages_read', 'bookstack_books_list'],
             error_codes: [
                 {
                     code: 'VALIDATION_ERROR',

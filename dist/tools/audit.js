@@ -27,7 +27,7 @@ class AuditTools {
     createListAuditLogTool() {
         return {
             name: 'bookstack_audit_log_list',
-            description: 'Retrieve the audit log to see recent activities on the instance. Tracks creation, updates, deletions, and other system events.',
+            description: 'Retrieve the audit log to see recent activities on the instance.',
             category: 'audit',
             inputSchema: {
                 type: 'object',
@@ -56,7 +56,7 @@ class AuditTools {
                         properties: {
                             event: {
                                 type: 'string',
-                                description: 'Filter by event key (e.g. "page_create", "book_delete").',
+                                description: 'Filter by event key (e.g. "page_create", "user_login").',
                             },
                             user_id: {
                                 type: 'integer',

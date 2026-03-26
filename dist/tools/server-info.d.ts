@@ -36,7 +36,8 @@ export declare class ServerInfoTools {
      */
     private createHelpTool;
     /**
-     * Get tool categories with detailed information
+     * Get tool categories filtered to only include tools that are actually registered.
+     * In read-only mode this automatically removes write-only categories.
      */
     private getToolCategories;
     /**
@@ -44,7 +45,9 @@ export declare class ServerInfoTools {
      */
     private getResourceTypes;
     /**
-     * Get usage examples for common workflows
+     * Get usage examples for common workflows.
+     * Workflows are filtered to only include steps whose tools are actually registered,
+     * and entire workflows that become empty are removed.
      */
     private getUsageExamples;
     /**

@@ -579,32 +579,38 @@ declare const ValidationSchemas: {
     roleCreate: z.ZodObject<{
         display_name: z.ZodString;
         description: z.ZodOptional<z.ZodString>;
+        external_auth_id: z.ZodOptional<z.ZodString>;
         permissions: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
         mfa_enforced: z.ZodOptional<z.ZodBoolean>;
     }, "strip", z.ZodTypeAny, {
         display_name: string;
         description?: string | undefined;
+        external_auth_id?: string | undefined;
         permissions?: string[] | undefined;
         mfa_enforced?: boolean | undefined;
     }, {
         display_name: string;
         description?: string | undefined;
+        external_auth_id?: string | undefined;
         permissions?: string[] | undefined;
         mfa_enforced?: boolean | undefined;
     }>;
     roleUpdate: z.ZodObject<{
         display_name: z.ZodOptional<z.ZodString>;
         description: z.ZodOptional<z.ZodString>;
+        external_auth_id: z.ZodOptional<z.ZodString>;
         permissions: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
         mfa_enforced: z.ZodOptional<z.ZodBoolean>;
     }, "strip", z.ZodTypeAny, {
         display_name?: string | undefined;
         description?: string | undefined;
+        external_auth_id?: string | undefined;
         permissions?: string[] | undefined;
         mfa_enforced?: boolean | undefined;
     }, {
         display_name?: string | undefined;
         description?: string | undefined;
+        external_auth_id?: string | undefined;
         permissions?: string[] | undefined;
         mfa_enforced?: boolean | undefined;
     }>;
@@ -795,7 +801,7 @@ declare const ValidationSchemas: {
         offset?: number | undefined;
     }>;
     contentPermissionsUpdate: z.ZodObject<{
-        permissions: z.ZodArray<z.ZodObject<{
+        role_permissions: z.ZodOptional<z.ZodArray<z.ZodObject<{
             role_id: z.ZodNumber;
             view: z.ZodBoolean;
             create: z.ZodBoolean;
@@ -813,23 +819,56 @@ declare const ValidationSchemas: {
             view: boolean;
             create: boolean;
             update: boolean;
-        }>, "many">;
+        }>, "many">>;
+        fallback_permissions: z.ZodOptional<z.ZodObject<{
+            inheriting: z.ZodBoolean;
+            view: z.ZodOptional<z.ZodBoolean>;
+            create: z.ZodOptional<z.ZodBoolean>;
+            update: z.ZodOptional<z.ZodBoolean>;
+            delete: z.ZodOptional<z.ZodBoolean>;
+        }, "strip", z.ZodTypeAny, {
+            inheriting: boolean;
+            delete?: boolean | undefined;
+            view?: boolean | undefined;
+            create?: boolean | undefined;
+            update?: boolean | undefined;
+        }, {
+            inheriting: boolean;
+            delete?: boolean | undefined;
+            view?: boolean | undefined;
+            create?: boolean | undefined;
+            update?: boolean | undefined;
+        }>>;
     }, "strip", z.ZodTypeAny, {
-        permissions: {
+        role_permissions?: {
             delete: boolean;
             role_id: number;
             view: boolean;
             create: boolean;
             update: boolean;
-        }[];
+        }[] | undefined;
+        fallback_permissions?: {
+            inheriting: boolean;
+            delete?: boolean | undefined;
+            view?: boolean | undefined;
+            create?: boolean | undefined;
+            update?: boolean | undefined;
+        } | undefined;
     }, {
-        permissions: {
+        role_permissions?: {
             delete: boolean;
             role_id: number;
             view: boolean;
             create: boolean;
             update: boolean;
-        }[];
+        }[] | undefined;
+        fallback_permissions?: {
+            inheriting: boolean;
+            delete?: boolean | undefined;
+            view?: boolean | undefined;
+            create?: boolean | undefined;
+            update?: boolean | undefined;
+        } | undefined;
     }>;
     export: z.ZodObject<{
         id: z.ZodNumber;
