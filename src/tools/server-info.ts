@@ -265,33 +265,34 @@ export class ServerInfoTools {
   }
 
   /**
-   * Get tool categories with detailed information
+   * Get tool categories filtered to only include tools that are actually registered.
+   * In read-only mode this automatically removes write-only categories.
    */
   private getToolCategories(): ToolCategory[] {
-    return [
+    const allCategories: ToolCategory[] = [
       {
         name: 'books',
-        description: 'Manage books - the top-level containers for documentation',
+        description: 'Access books - the top-level containers for documentation',
         tools: ['bookstack_books_list', 'bookstack_books_create', 'bookstack_books_read', 'bookstack_books_update', 'bookstack_books_delete', 'bookstack_books_export'],
-        use_cases: ['Create new documentation projects', 'Organize content by topic', 'Export complete documentation'],
+        use_cases: ['Browse documentation projects', 'Organize content by topic', 'Export complete documentation'],
       },
       {
         name: 'pages',
-        description: 'Manage individual pages - the core content units',
+        description: 'Access individual pages - the core content units',
         tools: ['bookstack_pages_list', 'bookstack_pages_create', 'bookstack_pages_read', 'bookstack_pages_update', 'bookstack_pages_delete', 'bookstack_pages_export'],
-        use_cases: ['Create articles and documentation', 'Update existing content', 'Manage page hierarchy'],
+        use_cases: ['Read articles and documentation', 'Manage page hierarchy'],
       },
       {
         name: 'chapters',
-        description: 'Manage chapters - organize pages within books',
+        description: 'Access chapters - page groupings within books',
         tools: ['bookstack_chapters_list', 'bookstack_chapters_create', 'bookstack_chapters_read', 'bookstack_chapters_update', 'bookstack_chapters_delete', 'bookstack_chapters_export'],
-        use_cases: ['Structure documentation', 'Group related pages', 'Create logical content flow'],
+        use_cases: ['Browse documentation structure', 'Group related pages'],
       },
       {
         name: 'shelves',
-        description: 'Manage shelves - organize multiple books',
+        description: 'Access shelves - collections of books',
         tools: ['bookstack_shelves_list', 'bookstack_shelves_create', 'bookstack_shelves_read', 'bookstack_shelves_update', 'bookstack_shelves_delete'],
-        use_cases: ['Organize books by category', 'Create departmental collections', 'Manage large documentation sets'],
+        use_cases: ['Browse books by category', 'Explore departmental collections'],
       },
       {
         name: 'search',
@@ -336,6 +337,14 @@ export class ServerInfoTools {
         use_cases: ['Upload images', 'Manage gallery assets'],
       },
     ];
+
+    // Filter each category's tool list to only registered tools; drop empty categories
+    return allCategories
+      .map(category => ({
+        ...category,
+        tools: category.tools.filter(toolName => this.toolsMap.has(toolName)),
+      }))
+      .filter(category => category.tools.length > 0);
   }
 
   /**
@@ -368,10 +377,12 @@ export class ServerInfoTools {
   }
 
   /**
-   * Get usage examples for common workflows
+   * Get usage examples for common workflows.
+   * Workflows are filtered to only include steps whose tools are actually registered,
+   * and entire workflows that become empty are removed.
    */
   private getUsageExamples(): ServerUsageExample[] {
-    return [
+    const allExamples: ServerUsageExample[] = [
       {
         title: 'Create Complete Documentation Project',
         description: 'Step-by-step workflow to create a new documentation project from scratch',
@@ -407,8 +418,8 @@ export class ServerInfoTools {
         expected_outcome: 'A complete, structured documentation project ready for team collaboration',
       },
       {
-        title: 'Search and Update Existing Content',
-        description: 'Find and update existing documentation efficiently',
+        title: 'Search and Read Existing Content',
+        description: 'Find and read existing documentation efficiently',
         workflow: [
           {
             step: 1,
@@ -421,18 +432,56 @@ export class ServerInfoTools {
             step: 2,
             action: 'Read current content',
             tool_or_resource: 'bookstack_pages_read',
-            description: 'Review existing content before making changes',
+            description: 'Read the full page content',
           },
           {
             step: 3,
-            action: 'Update with new information',
-            tool_or_resource: 'bookstack_pages_update',
-            description: 'Apply your changes to keep documentation current',
+            action: 'Export for offline use',
+            tool_or_resource: 'bookstack_pages_export',
+            description: 'Export the page in your preferred format',
           },
         ],
-        expected_outcome: 'Updated documentation with current and accurate information',
+        expected_outcome: 'Located and read the relevant documentation',
+      },
+      {
+        title: 'Browse and Export Documentation',
+        description: 'Explore the knowledge base and export content',
+        workflow: [
+          {
+            step: 1,
+            action: 'List all shelves',
+            tool_or_resource: 'bookstack_shelves_list',
+            description: 'Get an overview of the knowledge base structure',
+          },
+          {
+            step: 2,
+            action: 'List books in a shelf',
+            tool_or_resource: 'bookstack_books_list',
+            description: 'Browse books within a category',
+          },
+          {
+            step: 3,
+            action: 'Export a book',
+            tool_or_resource: 'bookstack_books_export',
+            description: 'Export the entire book for offline reading',
+          },
+        ],
+        expected_outcome: 'Browsed and exported the desired documentation',
       },
     ];
+
+    // Keep only workflow steps whose tools are registered; drop empty workflows
+    return allExamples
+      .map(example => ({
+        ...example,
+        workflow: example.workflow.filter(step => this.toolsMap.has(step.tool_or_resource)),
+      }))
+      .filter(example => example.workflow.length > 0)
+      .map((example, idx) => ({
+        ...example,
+        // Re-number steps after filtering
+        workflow: example.workflow.map((step, i) => ({ ...step, step: i + 1 })),
+      }));
   }
 
   /**

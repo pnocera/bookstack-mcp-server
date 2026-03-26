@@ -1,11 +1,34 @@
 # BookStack MCP Server
 
-Connect BookStack to Claude and other AI assistants through the Model Context Protocol (MCP). This server provides complete access to your BookStack knowledge base with 47+ tools covering all API endpoints.
+Connect BookStack to Claude and other AI assistants through the Model Context Protocol (MCP). This server provides access to your BookStack knowledge base through MCP tools.
 
 This server supports two transport modes: **Streamable HTTP** and **Stdio**.
 
-- **Streamable HTTP (Default)**: A stateless HTTP transport. Authentication parameters can be overridden per-request using HTTP headers (`x-bookstack-url` and `x-bookstack-token`).
+- **Streamable HTTP (Default)**: A stateless HTTP transport. By default, per-request credential override headers (`x-bookstack-url`, `x-bookstack-token`) are **disabled** — the server always uses the credentials from environment variables.
 - **Stdio Mode**: Standard input/output for local integration (e.g., with Claude Desktop). Set `MCP_TRANSPORT=stdio` to enable.
+
+## Public Read-Only Mode (default)
+
+By default the server runs in **public read-only mode** (`PUBLIC_READ_ONLY=true`). In this mode:
+
+- Only **18 read/search/export tools** are exposed — no create, update, or delete operations.
+- User, role, permission, audit, recycle bin, attachment, and image management tools are not registered.
+- Per-request credential headers (`x-bookstack-url`, `x-bookstack-token`) are **rejected with HTTP 400**.
+- The server is safe to expose publicly without authentication middleware.
+
+To enable full CRUD mode, set `PUBLIC_READ_ONLY=false` and optionally `ALLOW_BOOKSTACK_HEADER_OVERRIDES=true`.
+
+### Available tools in read-only mode
+
+| Category | Tools |
+|----------|-------|
+| Books | `bookstack_books_list`, `bookstack_books_read`, `bookstack_books_export` |
+| Pages | `bookstack_pages_list`, `bookstack_pages_read`, `bookstack_pages_export` |
+| Chapters | `bookstack_chapters_list`, `bookstack_chapters_read`, `bookstack_chapters_export` |
+| Shelves | `bookstack_shelves_list`, `bookstack_shelves_read` |
+| Search | `bookstack_search` |
+| System | `bookstack_system_info` |
+| Meta | `bookstack_server_info`, `bookstack_tool_categories`, `bookstack_usage_examples`, `bookstack_error_guides`, `bookstack_help` |
 
 ## ✨ What You Get
 
@@ -101,6 +124,41 @@ bookstack_pages_create({
 bookstack_search({ query: "API documentation", count: 20 })
 ```
 
+## Docker deployment
+
+```bash
+# Copy and edit env
+cp .env.example .env
+# Set BOOKSTACK_BASE_URL and BOOKSTACK_API_TOKEN in .env
+
+# Build and start
+docker compose up -d
+
+# Verify
+curl http://localhost:3000/healthz
+# → {"ok":true}
+```
+
+### Verification checklist
+
+```bash
+# 1. Healthcheck
+curl http://localhost:3000/healthz
+
+# 2. Header override is rejected (should return HTTP 400)
+curl -s -w "\n%{http_code}" -X POST http://localhost:3000/message \
+  -H "Content-Type: application/json" \
+  -H "x-bookstack-url: https://evil.example.com" \
+  -d '{}'
+
+# 3. List tools (should show only read-only tools)
+# Use your MCP client — no create/update/delete tools should appear
+
+# 4. Call a blocked tool (should return error)
+# Invoke bookstack_books_create via your MCP client
+# Expected: "Tool disabled on this public read-only server: bookstack_books_create"
+```
+
 ## 🛠️ Development
 
 ```bash
@@ -110,7 +168,7 @@ npm install
 npm run dev
 ```
 
-> 🔧 See the [Setup Guide](docs/setup-guide.md) for development, Docker, and production deployment
+> 🔧 See the [Setup Guide](docs/setup-guide.md) for development and production deployment
 
 ## 📝 License
 
