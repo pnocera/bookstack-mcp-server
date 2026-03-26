@@ -1,0 +1,28 @@
+version: "3.9"
+
+services:
+  bookstack-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bookstack-mcp
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: "production"
+      MCP_TRANSPORT: "http"
+      PORT: "3000"
+      PUBLIC_READ_ONLY: "true"
+      ALLOW_BOOKSTACK_HEADER_OVERRIDES: "false"
+      BOOKSTACK_BASE_URL: "${BOOKSTACK_BASE_URL}"
+      BOOKSTACK_API_TOKEN: "${BOOKSTACK_API_TOKEN}"
+      BOOKSTACK_TIMEOUT: "${BOOKSTACK_TIMEOUT:-30000}"
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+      LOG_FORMAT: "${LOG_FORMAT:-json}"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
