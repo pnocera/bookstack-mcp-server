@@ -31,7 +31,7 @@ export class Logger {
       level,
       format: logFormat,
       transports: [
-        new winston.transports.Console(),
+        new winston.transports.Console({ stderrLevels: ['error', 'warn', 'info', 'http', 'verbose', 'debug', 'silly'] }),
       ],
     });
   }
