@@ -263,6 +263,7 @@ function spawnChild(token) {
       LOG_LEVEL:           process.env.LOG_LEVEL || 'error',
       NODE_ENV:            process.env.NODE_ENV || 'production',
       MCP_TRANSPORT:       'stdio',
+      BASE_URL:            BASE_URL,
     },
     stdio: ['pipe', 'pipe', 'inherit'], // stderr → host stderr for debugging
   });
