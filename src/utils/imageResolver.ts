@@ -13,6 +13,22 @@ const ownUrl = (() => {
   try { return process.env.BASE_URL ? new URL(process.env.BASE_URL) : null; } catch { return null; }
 })();
 
+const MIME_TO_EXT: Record<string, string> = {
+  'image/jpeg': '.jpg',
+  'image/jpg':  '.jpg',
+  'image/png':  '.png',
+  'image/gif':  '.gif',
+  'image/webp': '.webp',
+  'image/bmp':  '.bmp',
+  'image/tiff': '.tiff',
+  'image/svg+xml': '.svg',
+};
+
+function ensureExtension(filename: string, mimeType: string): string {
+  if (/\.[a-zA-Z0-9]+$/.test(filename)) return filename;
+  return filename + (MIME_TO_EXT[mimeType] ?? '.jpg');
+}
+
 const ALLOWED_MIME_TYPES = new Set([
   'image/jpeg',
   'image/jpg',
@@ -161,11 +177,8 @@ async function fetchImageFromUrl(url: string, fallbackName: string): Promise<Pre
       );
     }
 
-    return {
-      filename: extractFilenameFromUrl(currentUrl, fallbackName),
-      content,
-      mimeType: rawMime,
-    };
+    const filename = ensureExtension(extractFilenameFromUrl(currentUrl, fallbackName), rawMime);
+    return { filename, content, mimeType: rawMime };
   }
 
   throw new Error(`Too many redirects (max ${MAX_REDIRECTS}) fetching ${url}`);
@@ -195,7 +208,7 @@ export async function resolveImage(image: string, fallbackName: string): Promise
       throw new Error('Data URI image payload is empty after decoding');
     }
 
-    return { filename: fallbackName, content, mimeType };
+    return { filename: ensureExtension(fallbackName, mimeType), content, mimeType };
   }
 
   // Plain Base64
@@ -204,5 +217,5 @@ export async function resolveImage(image: string, fallbackName: string): Promise
     throw new Error('Decoded base64 image payload is empty');
   }
 
-  return { filename: fallbackName, content, mimeType: DEFAULT_MIME_TYPE };
+  return { filename: ensureExtension(fallbackName, DEFAULT_MIME_TYPE), content, mimeType: DEFAULT_MIME_TYPE };
 }
