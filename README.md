@@ -124,6 +124,8 @@ docker logs bookstack-mcp -f
 6. Click **Allow Access**
 7. Test: ask Claude *"List all BookStack books"*
 
+![Claude Desktop — connecting to BookStack MCP](docs/assets/claude-desktop-connect.png)
+
 Claude registers itself automatically via Dynamic Client Registration — no manual client setup required.
 
 ## Stdio Mode (Claude Desktop / Claude Code)
