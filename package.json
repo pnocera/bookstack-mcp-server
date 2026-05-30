@@ -1,11 +1,12 @@
 {
-  "name": "bookstack-mcp-server",
+  "name": "bookstack-mcp-docker",
   "version": "1.0.0",
-  "description": "MCP server providing comprehensive access to BookStack knowledge management system",
+  "description": "BookStack MCP server with HTTP/OAuth support (streamable HTTP + PKCE)",
   "main": "dist/server.js",
   "scripts": {
     "build": "npm run clean && tsc",
     "start": "node dist/server.js",
+    "start:http": "node src/http-server.js",
     "prepublishOnly": "npm run build",
     "dev": "ts-node src/server.ts",
     "watch": "nodemon --exec ts-node src/server.ts",
@@ -16,8 +17,8 @@
     "lint:fix": "eslint src/**/*.ts --fix",
     "format": "prettier --write src/**/*.ts",
     "clean": "rimraf dist",
-    "docker:build": "docker build -t bookstack-mcp-server .",
-    "docker:run": "docker run -p 3000:3000 bookstack-mcp-server"
+    "docker:build": "docker build -t volkerhaensel/bookstack-mcp-docker:latest .",
+    "docker:push": "docker push volkerhaensel/bookstack-mcp-docker:latest"
   },
   "keywords": [
     "mcp",
@@ -31,7 +32,8 @@
   "author": "BookStack MCP Integration",
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "jose": "^5.0.0",
     "axios": "^1.6.0",
     "zod": "^3.22.4",
     "winston": "^3.10.0",
@@ -77,12 +79,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/pnocera/bookstack-mcp-server.git"
+    "url": "https://github.com/volker76/bookstack-mcp-docker.git"
   },
   "bugs": {
-    "url": "https://github.com/pnocera/bookstack-mcp-server/issues"
+    "url": "https://github.com/volker76/bookstack-mcp-docker/issues"
   },
-  "homepage": "https://github.com/pnocera/bookstack-mcp-server#readme",
+  "homepage": "https://github.com/volker76/bookstack-mcp-docker#readme",
   "jest": {
     "preset": "ts-jest",
     "testEnvironment": "node",

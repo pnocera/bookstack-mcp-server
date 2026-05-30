@@ -1,0 +1,33 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Add this service to your existing docker-compose.yml on the BookStack server.
+#
+# Image: volkerhaensel/bookstack-mcp-docker:latest (Docker Hub)
+#
+# Assumes bookstack-mcp runs in the same docker-compose as bookstack.
+# bookstack-mcp reaches bookstack directly via the internal Docker network
+# (http://bookstack:80) instead of going through the public URL.
+#
+# Copy .env.example → .env and fill in your values before starting.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  bookstack-mcp:
+    image: volkerhaensel/bookstack-mcp-docker:latest
+    container_name: bookstack-mcp
+    env_file: .env
+    ports:
+      - "127.0.0.1:3100:3100"
+    restart: unless-stopped
+    depends_on:
+      - bookstack
+
+  watchtower-bookstack-mcp:
+    image: containrrr/watchtower:latest
+    container_name: watchtower-bookstack-mcp
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --interval 120 bookstack-mcp bookstack
+    restart: unless-stopped
+
+volumes:
+  bookstack_config:
