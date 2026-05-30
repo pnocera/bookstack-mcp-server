@@ -246,6 +246,7 @@ function spawnChild(token) {
       BOOKSTACK_API_TOKEN: token,
       LOG_LEVEL:           process.env.LOG_LEVEL || 'error',
       NODE_ENV:            process.env.NODE_ENV || 'production',
+      MCP_TRANSPORT:       'stdio',
     },
     stdio: ['pipe', 'pipe', 'inherit'], // stderr → host stderr for debugging
   });
