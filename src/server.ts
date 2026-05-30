@@ -365,10 +365,10 @@ if (require.main === module) {
 
         const server = new BookStackMCPServer(configOverrides);
         const transport = new StreamableHTTPServerTransport({
-          sessionIdGenerator: undefined,
           enableJsonResponse: true,
         });
-        await server.connect(transport);
+        transport.onclose = () => {};
+        await server.connect(transport as Transport);
         await transport.handleRequest(req, res, req.body);
       } catch (error) {
         console.error('Error handling request:', error);
