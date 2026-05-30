@@ -47,6 +47,22 @@ const SESSION_IDLE_TIMEOUT_MS = parseInt(process.env.SESSION_IDLE_TIMEOUT_MS || 
 const registeredClients = new Map(); // clientId → { redirectUris }
 const pendingCodes      = new Map(); // code → { clientId, redirectUri, codeChallenge, codeChallengeMethod, expiresAt }
 const mcpSessions       = new Map(); // sessionId → { transport, child, resetIdleTimer }
+const stagingStore      = new Map(); // id → { buffer, mime, filename, expires }
+
+const STAGING_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+// Clean up expired staging files every minute
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, entry] of stagingStore) {
+    if (entry.expires < now) stagingStore.delete(id);
+  }
+}, 60_000);
+
+const ALLOWED_STAGING_MIMES = new Set([
+  'image/jpeg', 'image/jpg', 'image/png', 'image/gif',
+  'image/webp', 'image/bmp', 'image/tiff', 'image/svg+xml',
+]);
 
 // ─── App setup ────────────────────────────────────────────────────────────────
 
@@ -381,6 +397,49 @@ async function newMcpSession(token, { reconnect = false } = {}) {
   return session;
 }
 
+// ─── Image upload portal ──────────────────────────────────────────────────────
+
+app.get('/upload', (_req, res) => {
+  res.type('html').send(buildUploadPage());
+});
+
+app.post('/staging/upload',
+  express.raw({ type: '*/*', limit: '52428800' }), // 50 MB
+  (req, res) => {
+    const mime = (req.headers['x-mime-type'] || 'application/octet-stream').split(';')[0].trim().toLowerCase();
+    const filename = (req.headers['x-filename'] || 'image').toString().replace(/[^\w\-_.]/g, '_').slice(0, 255) || 'image';
+
+    if (!ALLOWED_STAGING_MIMES.has(mime)) {
+      return res.status(415).json({ error: `Unsupported MIME type: ${mime}` });
+    }
+
+    const buffer = req.body;
+    if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
+      return res.status(400).json({ error: 'Empty or invalid body' });
+    }
+    if (buffer.length > 52_428_800) {
+      return res.status(413).json({ error: 'File too large (max 50 MB)' });
+    }
+
+    const id = randomBytes(16).toString('hex');
+    stagingStore.set(id, { buffer, mime, filename, expires: Date.now() + STAGING_TTL_MS });
+
+    const url = `${BASE_URL}/staging/${id}`;
+    res.json({ url, expires_in: STAGING_TTL_MS / 1000, filename });
+  }
+);
+
+app.get('/staging/:id', (req, res) => {
+  const entry = stagingStore.get(req.params.id);
+  if (!entry || entry.expires < Date.now()) {
+    stagingStore.delete(req.params.id);
+    return res.status(404).json({ error: 'Not found or expired' });
+  }
+  res.setHeader('Content-Type', entry.mime);
+  res.setHeader('Content-Disposition', `inline; filename="${entry.filename}"`);
+  res.send(entry.buffer);
+});
+
 // ─── MCP endpoint ─────────────────────────────────────────────────────────────
 
 app.all('/mcp', requireAuth, async (req, res) => {
@@ -543,6 +602,260 @@ function buildAuthorizePage({ client_id, redirect_uri, state, code_challenge, co
       <button type="submit">Allow Access</button>
     </form>
   </div>
+</body>
+</html>`;
+}
+
+function buildUploadPage() {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BookStack MCP — Image Upload</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f1f5f9;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 1rem;
+    }
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 2rem;
+      width: 100%;
+      max-width: 480px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+    }
+    .logo {
+      width: 44px; height: 44px;
+      background: #2563eb;
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 1.25rem;
+    }
+    h1 { font-size: 1.1rem; font-weight: 600; color: #0f172a; margin-bottom: 0.4rem; }
+    .subtitle { font-size: 0.875rem; color: #64748b; margin-bottom: 1.5rem; }
+    .drop-zone {
+      border: 2px dashed #cbd5e1;
+      border-radius: 10px;
+      padding: 2.5rem 1.5rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+      margin-bottom: 1rem;
+      position: relative;
+    }
+    .drop-zone.drag-over { border-color: #2563eb; background: #eff6ff; }
+    .drop-zone.has-image { border-color: #22c55e; background: #f0fdf4; padding: 1rem; }
+    .drop-zone input[type=file] {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+    }
+    .drop-icon { font-size: 2.5rem; margin-bottom: 0.75rem; }
+    .drop-text { font-size: 0.9rem; color: #64748b; }
+    .drop-text strong { color: #2563eb; }
+    .preview {
+      max-width: 100%; max-height: 200px;
+      border-radius: 6px;
+      display: block; margin: 0 auto 0.5rem;
+      object-fit: contain;
+    }
+    .preview-name { font-size: 0.8rem; color: #64748b; text-align: center; }
+    button.upload-btn {
+      width: 100%; padding: 0.75rem;
+      background: #2563eb; color: #fff;
+      border: none; border-radius: 8px;
+      font-size: 0.95rem; font-weight: 500;
+      cursor: pointer; transition: background 0.15s;
+      margin-bottom: 1rem;
+    }
+    button.upload-btn:hover { background: #1d4ed8; }
+    button.upload-btn:disabled { background: #94a3b8; cursor: not-allowed; }
+    .result { display: none; }
+    .result.visible { display: block; }
+    .result-label { font-size: 0.8rem; font-weight: 500; color: #374151; margin-bottom: 0.35rem; }
+    .url-row { display: flex; gap: 0.5rem; }
+    .url-input {
+      flex: 1; padding: 0.6rem 0.75rem;
+      border: 1px solid #d1d5db; border-radius: 8px;
+      font-size: 0.85rem; font-family: monospace;
+      background: #f8fafc; color: #0f172a;
+      outline: none;
+    }
+    .copy-btn {
+      padding: 0.6rem 0.85rem;
+      background: #f1f5f9; border: 1px solid #d1d5db;
+      border-radius: 8px; cursor: pointer;
+      font-size: 0.85rem; white-space: nowrap;
+      transition: background 0.15s;
+    }
+    .copy-btn:hover { background: #e2e8f0; }
+    .copy-btn.copied { background: #dcfce7; border-color: #86efac; color: #15803d; }
+    .expires { font-size: 0.78rem; color: #94a3b8; margin-top: 0.5rem; }
+    .error-msg { font-size: 0.85rem; color: #dc2626; margin-bottom: 0.75rem; display: none; }
+    .hint {
+      font-size: 0.78rem; color: #94a3b8; text-align: center; margin-top: 1rem;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+           stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/>
+      </svg>
+    </div>
+    <h1>Upload Image for BookStack</h1>
+    <p class="subtitle">Drag &amp; drop, click to browse, or paste with <kbd>Ctrl+V</kbd></p>
+
+    <div class="drop-zone" id="dropZone">
+      <input type="file" id="fileInput" accept="image/*">
+      <div id="dropContent">
+        <div class="drop-icon">🖼️</div>
+        <div class="drop-text">Drop image here or <strong>click to browse</strong></div>
+      </div>
+    </div>
+
+    <div class="error-msg" id="errorMsg"></div>
+
+    <button class="upload-btn" id="uploadBtn" disabled>Upload Image</button>
+
+    <div class="result" id="result">
+      <div class="result-label">Temporary URL (valid 10 minutes)</div>
+      <div class="url-row">
+        <input class="url-input" id="urlOutput" readonly>
+        <button class="copy-btn" id="copyBtn">Copy</button>
+      </div>
+      <div class="expires" id="expiresText"></div>
+    </div>
+
+    <p class="hint">Pass the URL to Claude as the <code>image</code> parameter in <code>bookstack_images_create</code>.</p>
+  </div>
+
+  <script>
+    const dropZone   = document.getElementById('dropZone');
+    const dropContent = document.getElementById('dropContent');
+    const fileInput  = document.getElementById('fileInput');
+    const uploadBtn  = document.getElementById('uploadBtn');
+    const errorMsg   = document.getElementById('errorMsg');
+    const result     = document.getElementById('result');
+    const urlOutput  = document.getElementById('urlOutput');
+    const copyBtn    = document.getElementById('copyBtn');
+    const expiresText = document.getElementById('expiresText');
+
+    let selectedFile = null;
+
+    function showError(msg) {
+      errorMsg.textContent = msg;
+      errorMsg.style.display = 'block';
+    }
+    function hideError() { errorMsg.style.display = 'none'; }
+
+    function setFile(file) {
+      if (!file || !file.type.startsWith('image/')) {
+        showError('Please select an image file.');
+        return;
+      }
+      hideError();
+      selectedFile = file;
+      uploadBtn.disabled = false;
+
+      const reader = new FileReader();
+      reader.onload = e => {
+        dropZone.classList.add('has-image');
+        dropContent.innerHTML =
+          '<img class="preview" src="' + e.target.result + '">' +
+          '<div class="preview-name">' + file.name + ' (' + (file.size / 1024).toFixed(1) + ' KB)</div>';
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // File input change
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files[0]) setFile(fileInput.files[0]);
+    });
+
+    // Drag & drop
+    dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+    dropZone.addEventListener('drop', e => {
+      e.preventDefault();
+      dropZone.classList.remove('drag-over');
+      const file = e.dataTransfer.files[0];
+      if (file) setFile(file);
+    });
+
+    // Ctrl+V paste anywhere
+    document.addEventListener('paste', e => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of items) {
+        if (item.type.startsWith('image/')) {
+          setFile(item.getAsFile());
+          break;
+        }
+      }
+    });
+
+    // Upload
+    uploadBtn.addEventListener('click', async () => {
+      if (!selectedFile) return;
+      uploadBtn.disabled = true;
+      uploadBtn.textContent = 'Uploading…';
+      hideError();
+      result.classList.remove('visible');
+
+      try {
+        const res = await fetch('/staging/upload', {
+          method: 'POST',
+          headers: {
+            'Content-Type': selectedFile.type,
+            'X-Mime-Type': selectedFile.type,
+            'X-Filename': selectedFile.name,
+          },
+          body: selectedFile,
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: res.statusText }));
+          throw new Error(err.error || 'Upload failed');
+        }
+
+        const data = await res.json();
+        urlOutput.value = data.url;
+        result.classList.add('visible');
+
+        const expiresAt = new Date(Date.now() + data.expires_in * 1000);
+        expiresText.textContent = 'Expires at ' + expiresAt.toLocaleTimeString();
+
+        uploadBtn.textContent = 'Upload Another';
+        uploadBtn.disabled = false;
+      } catch (err) {
+        showError(err.message || 'Upload failed. Please try again.');
+        uploadBtn.textContent = 'Upload Image';
+        uploadBtn.disabled = false;
+      }
+    });
+
+    // Copy URL
+    copyBtn.addEventListener('click', () => {
+      navigator.clipboard.writeText(urlOutput.value).then(() => {
+        copyBtn.textContent = '✓ Copied!';
+        copyBtn.classList.add('copied');
+        setTimeout(() => {
+          copyBtn.textContent = 'Copy';
+          copyBtn.classList.remove('copied');
+        }, 2000);
+      });
+    });
+  </script>
 </body>
 </html>`;
 }

@@ -8,6 +8,11 @@ export interface PreparedImage {
   mimeType: string;
 }
 
+// Own server hostname (staging URLs bypass SSRF check)
+const ownUrl = (() => {
+  try { return process.env.BASE_URL ? new URL(process.env.BASE_URL) : null; } catch { return null; }
+})();
+
 const ALLOWED_MIME_TYPES = new Set([
   'image/jpeg',
   'image/jpg',
@@ -95,7 +100,12 @@ async function fetchImageFromUrl(url: string, fallbackName: string): Promise<Pre
       throw new Error(`Unsupported URL scheme: ${parsed.protocol} — only http and https are allowed`);
     }
 
-    await validateNotInternalHost(parsed.hostname);
+    const isOwnServer = ownUrl &&
+      parsed.hostname === ownUrl.hostname &&
+      (parsed.port || (parsed.protocol === 'https:' ? '443' : '80')) ===
+      (ownUrl.port || (ownUrl.protocol === 'https:' ? '443' : '80'));
+
+    if (!isOwnServer) await validateNotInternalHost(parsed.hostname);
 
     let response;
     try {
