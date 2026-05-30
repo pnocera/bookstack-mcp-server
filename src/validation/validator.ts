@@ -248,13 +248,14 @@ const ValidationSchemas = {
 
   imageCreate: z.object({
     name: z.string().min(1).max(255),
-    image: z.string(), // base64 encoded
+    image: z.string(), // base64 string, data URI, or http/https URL
     type: z.enum(['gallery', 'drawio']).default('gallery'),
+    uploaded_to: z.number().positive().optional(),
   }),
 
   imageUpdate: z.object({
     name: z.string().min(1).max(255).optional(),
-    image: z.string().optional(), // base64 encoded
+    image: z.string().optional(), // base64 string, data URI, or http/https URL
   }),
 
   // Search

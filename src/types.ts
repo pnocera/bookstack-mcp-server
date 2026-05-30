@@ -2,6 +2,7 @@
  * TypeScript interfaces for BookStack MCP Server
  * Generated from comprehensive API analysis
  */
+import { PreparedImage } from './utils/imageResolver';
 
 // Core Entity Types
 export interface Book {
@@ -453,13 +454,12 @@ export interface UpdateAttachmentParams {
 
 export interface CreateImageParams {
   name: string;
-  image: string; // base64 encoded
   type?: 'gallery' | 'drawio';
+  uploaded_to?: number;
 }
 
 export interface UpdateImageParams {
   name?: string;
-  image?: string; // base64 encoded
 }
 
 export interface UpdateContentPermissionsParams {
@@ -599,9 +599,9 @@ export interface BookStackAPIClient {
 
   // Images
   listImages(params?: ImageGalleryListParams): Promise<ListResponse<Image>>;
-  createImage(params: CreateImageParams): Promise<Image>;
+  createImage(params: CreateImageParams, image: PreparedImage): Promise<Image>;
   getImage(id: number): Promise<Image>;
-  updateImage(id: number, params: UpdateImageParams): Promise<Image>;
+  updateImage(id: number, params: UpdateImageParams, image?: PreparedImage): Promise<Image>;
   deleteImage(id: number): Promise<void>;
 
   // Search

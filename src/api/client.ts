@@ -1,5 +1,6 @@
 import axios, { AxiosInstance, AxiosResponse, AxiosError, AxiosRequestConfig } from 'axios';
 import { Agent } from 'https';
+import { PreparedImage } from '../utils/imageResolver';
 import { Config } from '../config/manager';
 import { Logger } from '../utils/logger';
 import { ErrorHandler } from '../utils/errors';
@@ -159,6 +160,26 @@ export class BookStackClient implements BookStackAPIClient {
     try {
       const response: AxiosResponse<T> = await this.client.request(config);
       return response.data;
+    } catch (error) {
+      throw this.errorHandler.handleError(error);
+    }
+  }
+
+  /**
+   * Multipart/form-data request (used for image uploads).
+   * Removes the default Content-Type header so axios can set the multipart boundary.
+   */
+  private async requestMultipart<T>(url: string, formData: FormData): Promise<T> {
+    try {
+      const response = await this.client.post(url, formData, {
+        transformRequest: [
+          (data: unknown, headers: Record<string, unknown>) => {
+            delete headers['Content-Type'];
+            return data;
+          },
+        ],
+      });
+      return response.data as T;
     } catch (error) {
       throw this.errorHandler.handleError(error);
     }
@@ -484,12 +505,13 @@ export class BookStackClient implements BookStackAPIClient {
     });
   }
 
-  async createImage(params: CreateImageParams): Promise<Image> {
-    return this.request<Image>({
-      method: 'POST',
-      url: '/image-gallery',
-      data: params,
-    });
+  async createImage(params: CreateImageParams, image: PreparedImage): Promise<Image> {
+    const fd = new FormData();
+    fd.append('name', params.name);
+    fd.append('type', params.type ?? 'gallery');
+    if (params.uploaded_to) fd.append('uploaded_to', String(params.uploaded_to));
+    fd.append('image', new Blob([image.content], { type: image.mimeType }), image.filename);
+    return this.requestMultipart<Image>('/image-gallery', fd);
   }
 
   async getImage(id: number): Promise<Image> {
@@ -499,7 +521,13 @@ export class BookStackClient implements BookStackAPIClient {
     });
   }
 
-  async updateImage(id: number, params: UpdateImageParams): Promise<Image> {
+  async updateImage(id: number, params: UpdateImageParams, image?: PreparedImage): Promise<Image> {
+    if (image) {
+      const fd = new FormData();
+      if (params.name) fd.append('name', params.name);
+      fd.append('image', new Blob([image.content], { type: image.mimeType }), image.filename);
+      return this.requestMultipart<Image>(`/image-gallery/${id}`, fd);
+    }
     return this.request<Image>({
       method: 'PUT',
       url: `/image-gallery/${id}`,
