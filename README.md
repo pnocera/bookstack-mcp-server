@@ -162,13 +162,69 @@ claude mcp add bookstack npx bookstack-mcp-server \
 | 📚 Shelves | Group books into collections |
 | 👥 Users & Roles | Complete user management |
 | 🔍 Search | Advanced search across all content |
-| 📎 Attachments & Images | File management |
+| 🖼️ Images | Flexible upload (base64, data URI, URL, portal) |
+| 📎 Attachments | File management |
 | 🔐 Permissions | Content access control |
 | 🗑️ Recycle Bin | Deleted item recovery |
 | 📊 Audit Log | Activity tracking |
 | ⚙️ System Info | Instance health and information |
 
 See the upstream [Tools Overview](docs/tools-overview.md) for full documentation.
+
+## Image Upload
+
+Images can be uploaded to the BookStack gallery via three input formats and an optional browser portal for large files.
+
+### Input formats for `bookstack_images_create` / `bookstack_images_update`
+
+| Format | Example |
+|--------|---------|
+| Plain base64 | `iVBORw0KGgoAAAANSUhEUg...` |
+| Data URI | `data:image/png;base64,iVBORw0KGgo...` |
+| HTTP/HTTPS URL | `https://example.com/photo.jpg` (fetched server-side) |
+
+Supported MIME types: `image/jpeg`, `image/png`, `image/gif`, `image/webp`, `image/bmp`, `image/tiff`, `image/svg+xml`  
+Maximum size: 50 MB
+
+URL fetching includes **SSRF protection** — loopback, private, link-local, and multicast IPs are rejected; redirects are validated hop-by-hop.
+
+### Browser upload portal
+
+For images that are too large to pass as inline base64 (typically > 100 KB), the gateway provides a browser-based upload portal:
+
+```
+GET /upload
+```
+
+**Features:**
+- Drag & drop an image onto the drop zone
+- Paste with **Ctrl+V** anywhere on the page
+- Click to browse from the file system
+- Preview before uploading
+- Returns a temporary URL valid for **10 minutes**
+- Copy-to-clipboard button for the URL
+
+**Workflow:**
+
+```
+1. Open  https://mcp-bookstack.example.com/upload  in a browser
+2. Drag & drop or paste the image
+3. Click "Upload Image" — a URL is displayed
+4. Pass the URL to Claude, who uses it in bookstack_images_create
+```
+
+Claude can also retrieve the portal URL itself via the MCP tool `bookstack_images_get_upload_url`.  
+When an image is too large, Claude will proactively suggest the portal.
+
+### Upload portal endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/upload` | Browser upload portal (no auth required) |
+| `POST` | `/staging/upload` | Receive raw image binary, return temporary URL |
+| `GET` | `/staging/:id` | Serve staged image (expires after 10 min) |
+
+Staged images are stored **in memory only** — they are not written to disk and are automatically cleaned up after expiry.
 
 ## OAuth Endpoints
 
