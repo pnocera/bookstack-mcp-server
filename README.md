@@ -1,131 +1,247 @@
-# BookStack MCP Server
+# bookstack-mcp-docker
 
-Connect BookStack to Claude and other AI assistants through the Model Context Protocol (MCP). This server provides complete access to your BookStack knowledge base with 47+ tools covering all API endpoints.
+A self-contained Docker image that exposes your [BookStack](https://www.bookstackapp.com/) knowledge base to Claude.ai as a **Custom Connector** via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io).
 
-This server supports two transport modes: **Streamable HTTP** and **Stdio**.
+> **Forked from** [pnocera/bookstack-mcp-server](https://github.com/pnocera/bookstack-mcp-server) — the original TypeScript stdio MCP server with 47+ BookStack tools.
+> This fork adds a **Dockerized HTTP/OAuth gateway** on top, making it usable as a remote MCP connector for Claude.ai without any additional bridge service.
 
-- **Streamable HTTP (Default)**: A stateless HTTP transport. Authentication parameters can be overridden per-request using HTTP headers (`x-bookstack-url` and `x-bookstack-token`).
-- **Stdio Mode**: Standard input/output for local integration (e.g., with Claude Desktop). Set `MCP_TRANSPORT=stdio` to enable.
+The HTTP gateway wraps the stdio MCP server with:
+- **OAuth 2.0 Authorization Code + PKCE** (required by Claude.ai)
+- **Per-user BookStack token** — each user authenticates with their own API token
+- **Streamable HTTP transport** (MCP protocol over HTTPS)
+- **JWT access tokens** (1 h) + refresh tokens (30 d)
+- **Dynamic Client Registration** (Claude registers itself automatically)
+- **Transparent session recovery** — lost sessions are rebuilt without re-authentication
 
-## ✨ What You Get
+## What You Get
 
-- **Complete BookStack Integration** - Access all your books, pages, chapters, and content
-- **47+ MCP Tools** - Full CRUD operations for every BookStack feature
-- **Search & Export** - Find content and export in multiple formats
-- **User Management** - Handle users, roles, and permissions
-- **Production Ready** - Rate limiting, validation, error handling, and logging
+- **47+ MCP Tools** — full CRUD for books, pages, chapters, shelves, users, roles, permissions, attachments, images, search, audit log, recycle bin, and system info
+- **Two transport modes** — HTTP/OAuth (Claude.ai Custom Connector) and stdio (Claude Desktop / Claude Code)
+- **Single Docker image** — no separate bridge service required
+- **Upstream-syncable** — fork tracks `pnocera/bookstack-mcp-server` via git remote `upstream`
 
-## 🚀 Quick Start
+## Architecture
 
-```bash
-# Install globally
-npm install -g bookstack-mcp-server
-
-# Or run directly (starts HTTP server by default)
-npx bookstack-mcp-server
+```
+Claude.ai  ──HTTPS──▶  nginx (TLS termination)
+                            │
+                            ▼
+               bookstack-mcp container (:3100)
+               ┌──────────────────────────────────┐
+               │  src/http-server.js               │
+               │  ├── /.well-known/oauth-*         │  OAuth metadata
+               │  ├── /oauth/register              │  Dynamic Client Registration
+               │  ├── /oauth/authorize             │  Consent page + token validation
+               │  ├── /oauth/token                 │  JWT issuance (PKCE S256)
+               │  └── /mcp                         │  Streamable HTTP
+               │        │                          │
+               │        ▼  child_process (stdio)   │
+               │  dist/server.js (compiled TS)     │
+               └──────────────────────────────────┘
+                            │
+                            ▼ (internal Docker network)
+               BookStack container (:80)
 ```
 
-### Add to Claude
+## Auth Flow
 
-To use with Claude Desktop (requires Stdio mode):
+```
+1. Claude.ai opens the OAuth consent page
+2. User enters their BookStack API token (token_id:token_secret)
+3. Server validates token live: GET /api/books against BookStack
+4. Valid → authorization code issued, redirect back to Claude
+5. Claude exchanges code for JWT (PKCE S256 verified)
+6. BookStack token is stored in the JWT payload (bst claim, signed HS256)
+7. Each MCP request: token extracted from JWT → passed to child process
+```
+
+No central user management needed — BookStack is both the auth source and the resource.
+
+## Prerequisites
+
+- Docker + Docker Compose (or Portainer)
+- A running [BookStack](https://www.bookstackapp.com/) instance
+- A public domain with HTTPS (e.g. via Let's Encrypt + nginx)
+
+Each user needs their own BookStack API token: **Settings → API Tokens → Add Token**
+
+## Quick Start
+
+### 1. Configure environment
 
 ```bash
-# For Claude Code
+cp .env.example .env
+```
+
+Edit `.env` and fill in your values:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `BOOKSTACK_BASE_URL` | ✓ | Internal BookStack API URL, e.g. `http://bookstack:80/api` |
+| `JWT_SECRET` | ✓ | Random secret — generate with `openssl rand -base64 32` |
+| `BASE_URL` | ✓ | Public HTTPS URL of this MCP server |
+| `MCP_PORT` | | Port inside the container (default: `3100`) |
+| `DEBUG` | | Set to `true` to enable auth debug logging |
+
+### 2. Add to your docker-compose.yml
+
+Copy the contents of [`docker-compose.snippet.yml`](docker-compose.snippet.yml) into your existing `docker-compose.yml` (the one that also runs BookStack).
+
+If `bookstack-mcp` runs in the same compose file as `bookstack`, set:
+```env
+BOOKSTACK_BASE_URL=http://bookstack:80/api
+```
+This routes traffic directly through the internal Docker network — no TLS overhead, no external roundtrip.
+
+### 3. Configure nginx
+
+Add a new vhost using [`nginx.snippet.conf`](nginx.snippet.conf) as a template and obtain an SSL certificate:
+
+```bash
+certbot --nginx -d mcp-bookstack.example.com
+```
+
+### 4. Start the service
+
+```bash
+docker compose up -d bookstack-mcp
+```
+
+### 5. Verify
+
+```bash
+curl https://mcp-bookstack.example.com/.well-known/oauth-authorization-server
+docker logs bookstack-mcp -f
+```
+
+## Connect Claude.ai
+
+1. Open Claude.ai → **Settings** → **Integrations** → **Add custom connector**
+2. Set **MCP Server URL** to `https://mcp-bookstack.example.com/mcp`
+3. Set **Authentication** to **OAuth**
+4. Click **Connect** — a browser window opens with the consent page
+5. Enter your BookStack API token (`token_id:token_secret`)
+6. Click **Allow Access**
+7. Test: ask Claude *"List all BookStack books"*
+
+Claude registers itself automatically via Dynamic Client Registration — no manual client setup required.
+
+## Stdio Mode (Claude Desktop / Claude Code)
+
+The original stdio transport is also available:
+
+```bash
+# Direct (after npm install && npm run build)
+BOOKSTACK_BASE_URL=https://your-bookstack.com/api \
+BOOKSTACK_API_TOKEN=token_id:token_secret \
+node dist/server.js
+
+# Via Docker
+docker run --rm \
+  -e BOOKSTACK_BASE_URL=https://your-bookstack.com/api \
+  -e BOOKSTACK_API_TOKEN=token_id:token_secret \
+  volkerhaensel/bookstack-mcp-docker:latest \
+  node dist/server.js
+
+# Claude Code
 claude mcp add bookstack npx bookstack-mcp-server \
   --env BOOKSTACK_BASE_URL=https://your-bookstack.com/api \
   --env BOOKSTACK_API_TOKEN=token_id:token_secret \
   --env MCP_TRANSPORT=stdio
 ```
 
-### Configuration
-
-Set these environment variables:
-
-```bash
-export BOOKSTACK_BASE_URL="https://your-bookstack.com/api"
-export BOOKSTACK_API_TOKEN="token_id:token_secret"
-# Optional: Set transport mode (http or stdio)
-export MCP_TRANSPORT="http" 
-```
-
-> 💡 **Token Format**: Combine your BookStack Token ID and Token Secret as `token_id:token_secret`
-
-> 💡 Need detailed setup? See the complete [Setup Guide](docs/setup-guide.md)
-
-## 🛠️ Available Tools
+## Available Tools
 
 **47+ tools across 13 categories:**
 
-- **📚 Books** - Create, read, update, delete, and export books
-- **📄 Pages** - Manage pages with HTML/Markdown content
-- **📑 Chapters** - Organize pages within books
-- **📚 Shelves** - Group books into collections
-- **👥 Users & Roles** - Complete user management
-- **🔍 Search** - Advanced search across all content
-- **📎 Attachments & Images** - File management
-- **🔐 Permissions** - Content access control
-- **🗑️ Recycle Bin** - Deleted item recovery
-- **📊 Audit Log** - Activity tracking
-- **⚙️ System Info** - Instance health and information
+| Category | Tools |
+|----------|-------|
+| 📚 Books | Create, read, update, delete, export |
+| 📄 Pages | Manage pages with HTML/Markdown content |
+| 📑 Chapters | Organize pages within books |
+| 📚 Shelves | Group books into collections |
+| 👥 Users & Roles | Complete user management |
+| 🔍 Search | Advanced search across all content |
+| 📎 Attachments & Images | File management |
+| 🔐 Permissions | Content access control |
+| 🗑️ Recycle Bin | Deleted item recovery |
+| 📊 Audit Log | Activity tracking |
+| ⚙️ System Info | Instance health and information |
 
-> 📖 See the complete [Tools Overview](docs/tools-overview.md) for detailed documentation
+See the upstream [Tools Overview](docs/tools-overview.md) for full documentation.
 
-## 📚 Documentation
+## OAuth Endpoints
 
-Find comprehensive guides in the `docs/` folder:
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/.well-known/oauth-authorization-server` | RFC 8414 metadata |
+| `POST` | `/oauth/register` | Dynamic Client Registration (RFC 7591) |
+| `GET` | `/oauth/authorize` | HTML consent page |
+| `POST` | `/oauth/authorize` | Validates BookStack token, issues authorization code |
+| `POST` | `/oauth/token` | Code → JWT exchange (PKCE S256) |
+| `ALL` | `/mcp` | Authenticated MCP endpoint |
 
-- **[Setup Guide](docs/setup-guide.md)** - Complete installation and configuration
-- **[API Reference](docs/api-reference.md)** - All endpoints with examples
-- **[Tools Overview](docs/tools-overview.md)** - Every tool explained
-- **[Resources Guide](docs/resources-guide.md)** - Resource access patterns
-- **[Examples & Workflows](docs/examples-and-workflows.md)** - Real-world usage
+## Token Lifetime
 
-## ⚡ Quick Examples
+| Token | Lifetime |
+|-------|----------|
+| Access token | 1 hour |
+| Refresh token | 30 days |
 
-**List all books:**
-```javascript
-bookstack_books_list({ count: 10, sort: "updated_at" })
-```
+Claude refreshes tokens automatically — no manual re-authorization needed until the refresh token expires.
 
-**Create a new page:**
-```javascript
-bookstack_pages_create({
-  name: "Getting Started",
-  book_id: 1,
-  markdown: "# Welcome\nYour content here..."
-})
-```
-
-**Search for content:**
-```javascript
-bookstack_search({ query: "API documentation", count: 20 })
-```
-
-## 🛠️ Development
+## Docker Hub
 
 ```bash
-git clone <repository-url>
-cd bookstack-mcp-server
-npm install
-npm run dev
+docker pull volkerhaensel/bookstack-mcp-docker:latest
 ```
 
-> 🔧 See the [Setup Guide](docs/setup-guide.md) for development, Docker, and production deployment
+## Building Locally
 
-## 📝 License
+```bash
+git clone https://github.com/volker76/bookstack-mcp-docker.git
+cd bookstack-mcp-docker
+npm install
+npm run build        # compile TypeScript
+npm run start:http   # start HTTP/OAuth gateway (port 3100)
+# or
+npm start            # start stdio server
+```
 
-MIT License - see [LICENSE](LICENSE) file for details.
+Docker:
+```bash
+docker build -t volkerhaensel/bookstack-mcp-docker:latest .
+```
 
-## 🌟 Community
+## Syncing with Upstream
 
-This project is part of the BookStack ecosystem! Check out other API-based tools and scripts in the [BookStack API Scripts](https://codeberg.org/bookstack/api-scripts) repository.
+```bash
+git fetch upstream
+git merge upstream/main
+npm run build
+docker build -t volkerhaensel/bookstack-mcp-docker:latest . && \
+  docker push volkerhaensel/bookstack-mcp-docker:latest
+```
 
-## 🆘 Support
+## Security Notes
 
-- **📚 Documentation**: Complete guides in the [docs/](docs/) folder
-- **🐛 Issues**: [GitHub Issues](https://github.com/pnocera/bookstack-mcp-server/issues)
-- **💬 Discussions**: [GitHub Discussions](https://github.com/pnocera/bookstack-mcp-server/discussions)
+- **Never commit `.env`** — it is listed in `.gitignore`
+- **JWT_SECRET** must be set explicitly in production; a random key is generated on startup if not set, invalidating all tokens on restart
+- **BookStack token in JWT** — the token is stored in the signed JWT payload (`bst` claim). The payload is base64-encoded but not encrypted (signed HS256). Acceptable because transport is HTTPS-only and the BookStack token is a dedicated API credential, not a master password
+- **Port binding** — bind to `127.0.0.1:3100:3100` in production so the port is only reachable via nginx, not directly from the internet
+
+## Debugging
+
+Set `DEBUG=true` in the environment to enable auth debug output:
+
+```bash
+docker logs bookstack-mcp -f
+```
+
+## License
+
+MIT — see [LICENSE](LICENSE) for details.
 
 ---
 
-**Built with ❤️ for the BookStack community**
+Upstream project: [pnocera/bookstack-mcp-server](https://github.com/pnocera/bookstack-mcp-server)
