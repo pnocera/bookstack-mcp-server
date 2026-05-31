@@ -314,9 +314,9 @@ if (require.main === module) {
                 };
                 const server = new BookStackMCPServer(configOverrides);
                 const transport = new streamableHttp_js_1.StreamableHTTPServerTransport({
-                    sessionIdGenerator: undefined,
                     enableJsonResponse: true,
                 });
+                transport.onclose = () => { };
                 await server.connect(transport);
                 await transport.handleRequest(req, res, req.body);
             }

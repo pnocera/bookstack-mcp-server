@@ -1,3 +1,4 @@
+import { PreparedImage } from '../utils/imageResolver';
 import { Config } from '../config/manager';
 import { Logger } from '../utils/logger';
 import { ErrorHandler } from '../utils/errors';
@@ -23,6 +24,11 @@ export declare class BookStackClient implements BookStackAPIClient {
      * Generic request method with retry logic
      */
     private request;
+    /**
+     * Multipart/form-data request (used for image uploads).
+     * Removes the default Content-Type header so axios can set the multipart boundary.
+     */
+    private requestMultipart;
     /**
      * Health check method
      */
@@ -66,9 +72,9 @@ export declare class BookStackClient implements BookStackAPIClient {
     updateAttachment(id: number, params: UpdateAttachmentParams): Promise<Attachment>;
     deleteAttachment(id: number): Promise<void>;
     listImages(params?: ImageGalleryListParams): Promise<ListResponse<Image>>;
-    createImage(params: CreateImageParams): Promise<Image>;
+    createImage(params: CreateImageParams, image: PreparedImage): Promise<Image>;
     getImage(id: number): Promise<Image>;
-    updateImage(id: number, params: UpdateImageParams): Promise<Image>;
+    updateImage(id: number, params: UpdateImageParams, image?: PreparedImage): Promise<Image>;
     deleteImage(id: number): Promise<void>;
     search(params: SearchParams): Promise<ListResponse<SearchResult>>;
     listRecycleBin(params?: PaginationParams): Promise<ListResponse<RecycleBinItem>>;

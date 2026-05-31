@@ -2,6 +2,7 @@
  * TypeScript interfaces for BookStack MCP Server
  * Generated from comprehensive API analysis
  */
+import { PreparedImage } from './utils/imageResolver';
 export interface Book {
     id: number;
     name: string;
@@ -374,12 +375,14 @@ export interface UpdateUserParams {
 export interface CreateRoleParams {
     display_name: string;
     description?: string;
+    external_auth_id?: string;
     permissions?: string[];
     mfa_enforced?: boolean;
 }
 export interface UpdateRoleParams {
     display_name?: string;
     description?: string;
+    external_auth_id?: string;
     permissions?: string[];
     mfa_enforced?: boolean;
 }
@@ -397,21 +400,27 @@ export interface UpdateAttachmentParams {
 }
 export interface CreateImageParams {
     name: string;
-    image: string;
     type?: 'gallery' | 'drawio';
+    uploaded_to?: number;
 }
 export interface UpdateImageParams {
     name?: string;
-    image?: string;
 }
 export interface UpdateContentPermissionsParams {
-    permissions: {
+    role_permissions?: {
         role_id: number;
         view: boolean;
         create: boolean;
         update: boolean;
         delete: boolean;
     }[];
+    fallback_permissions?: {
+        inheriting: boolean;
+        view?: boolean;
+        create?: boolean;
+        update?: boolean;
+        delete?: boolean;
+    };
 }
 export interface MCPTool {
     name: string;
@@ -503,9 +512,9 @@ export interface BookStackAPIClient {
     updateAttachment(id: number, params: UpdateAttachmentParams): Promise<Attachment>;
     deleteAttachment(id: number): Promise<void>;
     listImages(params?: ImageGalleryListParams): Promise<ListResponse<Image>>;
-    createImage(params: CreateImageParams): Promise<Image>;
+    createImage(params: CreateImageParams, image: PreparedImage): Promise<Image>;
     getImage(id: number): Promise<Image>;
-    updateImage(id: number, params: UpdateImageParams): Promise<Image>;
+    updateImage(id: number, params: UpdateImageParams, image?: PreparedImage): Promise<Image>;
     deleteImage(id: number): Promise<void>;
     search(params: SearchParams): Promise<ListResponse<SearchResult>>;
     listRecycleBin(params?: PaginationParams): Promise<ListResponse<RecycleBinItem>>;

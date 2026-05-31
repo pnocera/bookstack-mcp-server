@@ -37,5 +37,6 @@ export declare class ImageTools {
      * Delete image tool
      */
     private createDeleteImageTool;
+    private createGetUploadPortalTool;
 }
 //# sourceMappingURL=images.d.ts.map

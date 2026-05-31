@@ -22,7 +22,7 @@ class Logger {
             level,
             format: logFormat,
             transports: [
-                new winston_1.default.transports.Console(),
+                new winston_1.default.transports.Console({ stderrLevels: ['error', 'warn', 'info', 'http', 'verbose', 'debug', 'silly'] }),
             ],
         });
     }

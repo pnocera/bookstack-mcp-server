@@ -92,6 +92,26 @@ class BookStackClient {
         }
     }
     /**
+     * Multipart/form-data request (used for image uploads).
+     * Removes the default Content-Type header so axios can set the multipart boundary.
+     */
+    async requestMultipart(url, formData) {
+        try {
+            const response = await this.client.post(url, formData, {
+                transformRequest: [
+                    (data, headers) => {
+                        delete headers['Content-Type'];
+                        return data;
+                    },
+                ],
+            });
+            return response.data;
+        }
+        catch (error) {
+            throw this.errorHandler.handleError(error);
+        }
+    }
+    /**
      * Health check method
      */
     async healthCheck() {
@@ -372,12 +392,14 @@ class BookStackClient {
             params,
         });
     }
-    async createImage(params) {
-        return this.request({
-            method: 'POST',
-            url: '/image-gallery',
-            data: params,
-        });
+    async createImage(params, image) {
+        const fd = new FormData();
+        fd.append('name', params.name);
+        fd.append('type', params.type ?? 'gallery');
+        if (params.uploaded_to)
+            fd.append('uploaded_to', String(params.uploaded_to));
+        fd.append('image', new Blob([image.content], { type: image.mimeType }), image.filename);
+        return this.requestMultipart('/image-gallery', fd);
     }
     async getImage(id) {
         return this.request({
@@ -385,7 +407,14 @@ class BookStackClient {
             url: `/image-gallery/${id}`,
         });
     }
-    async updateImage(id, params) {
+    async updateImage(id, params, image) {
+        if (image) {
+            const fd = new FormData();
+            if (params.name)
+                fd.append('name', params.name);
+            fd.append('image', new Blob([image.content], { type: image.mimeType }), image.filename);
+            return this.requestMultipart(`/image-gallery/${id}`, fd);
+        }
         return this.request({
             method: 'PUT',
             url: `/image-gallery/${id}`,

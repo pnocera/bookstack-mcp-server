@@ -8,26 +8,26 @@ export declare const ConfigSchema: z.ZodObject<{
         apiToken: z.ZodString;
         timeout: z.ZodDefault<z.ZodNumber>;
     }, "strip", z.ZodTypeAny, {
+        timeout: number;
         baseUrl: string;
         apiToken: string;
-        timeout: number;
     }, {
         apiToken: string;
-        baseUrl?: string | undefined;
         timeout?: number | undefined;
+        baseUrl?: string | undefined;
     }>;
     server: z.ZodObject<{
         name: z.ZodDefault<z.ZodString>;
         version: z.ZodDefault<z.ZodString>;
         port: z.ZodDefault<z.ZodNumber>;
     }, "strip", z.ZodTypeAny, {
+        port: number;
         name: string;
         version: string;
-        port: number;
     }, {
+        port?: number | undefined;
         name?: string | undefined;
         version?: string | undefined;
-        port?: number | undefined;
     }>;
     rateLimit: z.ZodObject<{
         requestsPerMinute: z.ZodDefault<z.ZodNumber>;
@@ -53,10 +53,10 @@ export declare const ConfigSchema: z.ZodObject<{
         level: z.ZodDefault<z.ZodEnum<["error", "warn", "info", "debug"]>>;
         format: z.ZodDefault<z.ZodEnum<["json", "pretty"]>>;
     }, "strip", z.ZodTypeAny, {
-        format: "pretty" | "json";
+        format: "json" | "pretty";
         level: "info" | "error" | "warn" | "debug";
     }, {
-        format?: "pretty" | "json" | undefined;
+        format?: "json" | "pretty" | undefined;
         level?: "info" | "error" | "warn" | "debug" | undefined;
     }>;
     context7: z.ZodObject<{
@@ -101,21 +101,21 @@ export declare const ConfigSchema: z.ZodObject<{
         strictMode: boolean;
     };
     bookstack: {
+        timeout: number;
         baseUrl: string;
         apiToken: string;
-        timeout: number;
     };
     server: {
+        port: number;
         name: string;
         version: string;
-        port: number;
     };
     rateLimit: {
         requestsPerMinute: number;
         burstLimit: number;
     };
     logging: {
-        format: "pretty" | "json";
+        format: "json" | "pretty";
         level: "info" | "error" | "warn" | "debug";
     };
     context7: {
@@ -139,20 +139,20 @@ export declare const ConfigSchema: z.ZodObject<{
     };
     bookstack: {
         apiToken: string;
-        baseUrl?: string | undefined;
         timeout?: number | undefined;
+        baseUrl?: string | undefined;
     };
     server: {
+        port?: number | undefined;
         name?: string | undefined;
         version?: string | undefined;
-        port?: number | undefined;
     };
     rateLimit: {
         requestsPerMinute?: number | undefined;
         burstLimit?: number | undefined;
     };
     logging: {
-        format?: "pretty" | "json" | undefined;
+        format?: "json" | "pretty" | undefined;
         level?: "info" | "error" | "warn" | "debug" | undefined;
     };
     context7: {

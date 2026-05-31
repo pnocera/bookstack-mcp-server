@@ -179,12 +179,14 @@ const ValidationSchemas = {
     roleCreate: zod_1.z.object({
         display_name: zod_1.z.string().min(1).max(255),
         description: zod_1.z.string().max(1900).optional(),
+        external_auth_id: zod_1.z.string().optional(),
         permissions: zod_1.z.array(zod_1.z.string()).optional(),
         mfa_enforced: zod_1.z.boolean().optional(),
     }),
     roleUpdate: zod_1.z.object({
         display_name: zod_1.z.string().min(1).max(255).optional(),
         description: zod_1.z.string().max(1900).optional(),
+        external_auth_id: zod_1.z.string().optional(),
         permissions: zod_1.z.array(zod_1.z.string()).optional(),
         mfa_enforced: zod_1.z.boolean().optional(),
     }),
@@ -225,12 +227,13 @@ const ValidationSchemas = {
     }),
     imageCreate: zod_1.z.object({
         name: zod_1.z.string().min(1).max(255),
-        image: zod_1.z.string(), // base64 encoded
+        image: zod_1.z.string(), // base64 string, data URI, or http/https URL
         type: zod_1.z.enum(['gallery', 'drawio']).default('gallery'),
+        uploaded_to: zod_1.z.number().positive().optional(),
     }),
     imageUpdate: zod_1.z.object({
         name: zod_1.z.string().min(1).max(255).optional(),
-        image: zod_1.z.string().optional(), // base64 encoded
+        image: zod_1.z.string().optional(), // base64 string, data URI, or http/https URL
     }),
     // Search
     search: zod_1.z.object({
@@ -252,13 +255,20 @@ const ValidationSchemas = {
     }),
     // Content Permissions
     contentPermissionsUpdate: zod_1.z.object({
-        permissions: zod_1.z.array(zod_1.z.object({
+        role_permissions: zod_1.z.array(zod_1.z.object({
             role_id: zod_1.z.number(),
             view: zod_1.z.boolean(),
             create: zod_1.z.boolean(),
             update: zod_1.z.boolean(),
             delete: zod_1.z.boolean(),
-        })),
+        })).optional(),
+        fallback_permissions: zod_1.z.object({
+            inheriting: zod_1.z.boolean(),
+            view: zod_1.z.boolean().optional(),
+            create: zod_1.z.boolean().optional(),
+            update: zod_1.z.boolean().optional(),
+            delete: zod_1.z.boolean().optional(),
+        }).optional(),
     }),
     // Export
     export: zod_1.z.object({
