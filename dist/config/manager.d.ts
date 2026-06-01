@@ -20,14 +20,17 @@ export declare const ConfigSchema: z.ZodObject<{
         name: z.ZodDefault<z.ZodString>;
         version: z.ZodDefault<z.ZodString>;
         port: z.ZodDefault<z.ZodNumber>;
+        instructions: z.ZodOptional<z.ZodString>;
     }, "strip", z.ZodTypeAny, {
         port: number;
         name: string;
         version: string;
+        instructions?: string | undefined;
     }, {
         port?: number | undefined;
         name?: string | undefined;
         version?: string | undefined;
+        instructions?: string | undefined;
     }>;
     rateLimit: z.ZodObject<{
         requestsPerMinute: z.ZodDefault<z.ZodNumber>;
@@ -109,6 +112,7 @@ export declare const ConfigSchema: z.ZodObject<{
         port: number;
         name: string;
         version: string;
+        instructions?: string | undefined;
     };
     rateLimit: {
         requestsPerMinute: number;
@@ -146,6 +150,7 @@ export declare const ConfigSchema: z.ZodObject<{
         port?: number | undefined;
         name?: string | undefined;
         version?: string | undefined;
+        instructions?: string | undefined;
     };
     rateLimit: {
         requestsPerMinute?: number | undefined;

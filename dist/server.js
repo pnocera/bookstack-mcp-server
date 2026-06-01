@@ -75,6 +75,9 @@ class BookStackMCPServer {
                 resources: {},
                 logging: {},
             },
+            ...(config.server.instructions
+                ? { instructions: config.server.instructions }
+                : {}),
         });
         this.setupTools();
         this.setupResources();
@@ -83,6 +86,10 @@ class BookStackMCPServer {
             tools: this.tools.size,
             resources: this.resources.size,
             baseUrl: config.bookstack.baseUrl,
+        });
+        this.logger.debug('Server instructions', {
+            set: !!config.server.instructions,
+            length: config.server.instructions?.length ?? 0,
         });
     }
     /**

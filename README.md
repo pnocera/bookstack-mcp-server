@@ -288,6 +288,23 @@ docker build -t volkerhaensel/bookstack-mcp-docker:latest . && \
 - **BookStack token in JWT** — the token is stored in the signed JWT payload (`bst` claim). The payload is base64-encoded but not encrypted (signed HS256). Acceptable because transport is HTTPS-only and the BookStack token is a dedicated API credential, not a master password
 - **Port binding** — bind to `127.0.0.1:3100:3100` in production so the port is only reachable via nginx, not directly from the internet
 
+## Server Instructions
+
+The `SERVER_INSTRUCTIONS` environment variable lets you set a server-wide hint text that MCP
+clients receive in the `result.instructions` field of the JSON-RPC `initialize` response.
+Use it to tell the AI assistant what this server is for, what content is available, and how
+to use the tools effectively.
+
+```env
+SERVER_INSTRUCTIONS=This server gives access to our internal BookStack knowledge base. \
+  Use bookstack_search to find relevant pages before reading them individually.
+```
+
+If the variable is empty or unset, the `instructions` field is **omitted entirely** from the
+response — no empty string is sent.
+
+See [docs/instructions.md](docs/instructions.md) for full details and examples.
+
 ## Debugging
 
 Set `DEBUG=true` in the environment to enable auth debug output:

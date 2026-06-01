@@ -264,6 +264,7 @@ function spawnChild(token) {
       NODE_ENV:            process.env.NODE_ENV || 'production',
       MCP_TRANSPORT:       'stdio',
       BASE_URL:            BASE_URL,
+      SERVER_INSTRUCTIONS: process.env.SERVER_INSTRUCTIONS || '',
     },
     stdio: ['pipe', 'pipe', 'inherit'], // stderr → host stderr for debugging
   });
@@ -867,4 +868,12 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`BookStack MCP Docker running on :${PORT}`);
   console.log(`Base URL: ${BASE_URL}`);
   console.log(`Stdio server: ${STDIO_SERVER_PATH}`);
+  if (DEBUG) {
+    const instr = process.env.SERVER_INSTRUCTIONS || '';
+    if (instr) {
+      console.log(`[mcp] SERVER_INSTRUCTIONS set (${instr.length} chars):\n${instr}`);
+    } else {
+      console.log('[mcp] SERVER_INSTRUCTIONS not set — initialize response omits "instructions"');
+    }
+  }
 });

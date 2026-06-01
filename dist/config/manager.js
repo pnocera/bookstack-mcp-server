@@ -19,6 +19,7 @@ exports.ConfigSchema = zod_1.z.object({
         name: zod_1.z.string().default('bookstack-mcp-server'),
         version: zod_1.z.string().default('1.0.0'),
         port: zod_1.z.number().positive().default(3000),
+        instructions: zod_1.z.string().optional(),
     }),
     rateLimit: zod_1.z.object({
         requestsPerMinute: zod_1.z.number().positive().default(60),
@@ -75,6 +76,7 @@ class ConfigManager {
                 name: process.env.SERVER_NAME || 'bookstack-mcp-server',
                 version: process.env.SERVER_VERSION || '1.0.0',
                 port: parseInt(process.env.SERVER_PORT || '3000'),
+                instructions: process.env.SERVER_INSTRUCTIONS || undefined,
             },
             rateLimit: {
                 requestsPerMinute: parseInt(process.env.RATE_LIMIT_REQUESTS_PER_MINUTE || '60'),
