@@ -868,12 +868,10 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`BookStack MCP Docker running on :${PORT}`);
   console.log(`Base URL: ${BASE_URL}`);
   console.log(`Stdio server: ${STDIO_SERVER_PATH}`);
-  if (DEBUG) {
-    const instr = process.env.SERVER_INSTRUCTIONS || '';
-    if (instr) {
-      console.log(`[mcp] SERVER_INSTRUCTIONS set (${instr.length} chars):\n${instr}`);
-    } else {
-      console.log('[mcp] SERVER_INSTRUCTIONS not set — initialize response omits "instructions"');
-    }
+  const instr = process.env.SERVER_INSTRUCTIONS || '';
+  if (instr) {
+    console.log(`[mcp] SERVER_INSTRUCTIONS set (${instr.length} chars):\n${instr}`);
+  } else if (DEBUG) {
+    console.log('[mcp] SERVER_INSTRUCTIONS not set — initialize response omits "instructions"');
   }
 });
