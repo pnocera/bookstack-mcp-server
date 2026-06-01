@@ -875,4 +875,9 @@ app.listen(PORT, '0.0.0.0', () => {
   } else if (DEBUG) {
     console.log('[mcp] SERVER_INSTRUCTIONS not set — initialize response omits "instructions"');
   }
+  const verboseRaw = (process.env.VERBOSE || '').trim().toLowerCase();
+  const verboseActive = ['1', 'true', 'yes', 'on'].includes(verboseRaw);
+  if (verboseActive) {
+    console.log('[mcp] VERBOSE=enabled — child process will log full request/response JSON to stderr');
+  }
 });
