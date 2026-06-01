@@ -1,5 +1,8 @@
 /**
- * Logger utility using Winston
+ * Logger utility using Winston.
+ * When VERBOSE=1/true/True/TRUE is set, the effective log level is forced to
+ * "debug" regardless of LOG_LEVEL, so that verbose request/response logs are
+ * always emitted.
  */
 export declare class Logger {
     private static instance;

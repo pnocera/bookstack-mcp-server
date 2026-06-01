@@ -5,12 +5,17 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Logger = void 0;
 const winston_1 = __importDefault(require("winston"));
+const env_1 = require("./env");
 /**
- * Logger utility using Winston
+ * Logger utility using Winston.
+ * When VERBOSE=1/true/True/TRUE is set, the effective log level is forced to
+ * "debug" regardless of LOG_LEVEL, so that verbose request/response logs are
+ * always emitted.
  */
 class Logger {
     constructor() {
-        const level = process.env.LOG_LEVEL || 'info';
+        const verbose = (0, env_1.parseBooleanEnv)(process.env.VERBOSE);
+        const level = verbose ? 'debug' : (process.env.LOG_LEVEL || 'info');
         const format = process.env.LOG_FORMAT || 'pretty';
         const logFormat = format === 'json'
             ? winston_1.default.format.combine(winston_1.default.format.timestamp(), winston_1.default.format.errors({ stack: true }), winston_1.default.format.json())

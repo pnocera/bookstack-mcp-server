@@ -57,10 +57,10 @@ export declare const ConfigSchema: z.ZodObject<{
         format: z.ZodDefault<z.ZodEnum<["json", "pretty"]>>;
     }, "strip", z.ZodTypeAny, {
         format: "json" | "pretty";
-        level: "info" | "error" | "warn" | "debug";
+        level: "debug" | "info" | "error" | "warn";
     }, {
         format?: "json" | "pretty" | undefined;
-        level?: "info" | "error" | "warn" | "debug" | undefined;
+        level?: "debug" | "info" | "error" | "warn" | undefined;
     }>;
     context7: z.ZodObject<{
         enabled: z.ZodDefault<z.ZodBoolean>;
@@ -120,7 +120,7 @@ export declare const ConfigSchema: z.ZodObject<{
     };
     logging: {
         format: "json" | "pretty";
-        level: "info" | "error" | "warn" | "debug";
+        level: "debug" | "info" | "error" | "warn";
     };
     context7: {
         enabled: boolean;
@@ -158,7 +158,7 @@ export declare const ConfigSchema: z.ZodObject<{
     };
     logging: {
         format?: "json" | "pretty" | undefined;
-        level?: "info" | "error" | "warn" | "debug" | undefined;
+        level?: "debug" | "info" | "error" | "warn" | undefined;
     };
     context7: {
         enabled?: boolean | undefined;

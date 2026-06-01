@@ -82,6 +82,7 @@ Edit `.env` and fill in your values:
 | `BASE_URL` | ✓ | Public HTTPS URL of this MCP server |
 | `MCP_PORT` | | Port inside the container (default: `3100`) |
 | `DEBUG` | | Set to `true` to enable auth debug logging |
+| `VERBOSE` | | Set to `1`, `true`, `True`, or `TRUE` to log full request and response JSON on stderr |
 
 ### 2. Add to your docker-compose.yml
 
@@ -312,6 +313,29 @@ Set `DEBUG=true` in the environment to enable auth debug output:
 ```bash
 docker logs bookstack-mcp -f
 ```
+
+### Verbose request/response logging
+
+Set `VERBOSE=1` (or `true` / `True` / `TRUE`) to have the MCP server core log every
+incoming request and the full JSON response on **stderr**:
+
+```bash
+# standalone / stdio
+VERBOSE=1 MCP_TRANSPORT=stdio node dist/server.js
+
+# docker-compose
+environment:
+  - VERBOSE=1
+```
+
+When active, the server forces its log level to `debug` (overrides `LOG_LEVEL`) and emits
+`[VERBOSE]` prefixed lines for:
+- Every tool call with its arguments (`CallTool request`)
+- The complete result JSON before it is wrapped in the MCP envelope (`CallTool response`)
+- `ListTools`, `ListResources`, and `ReadResource` requests and responses
+
+This is intended for development and troubleshooting only — leave it off in production
+to keep logs concise.
 
 ## License
 

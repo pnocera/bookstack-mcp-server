@@ -22,7 +22,13 @@ export declare class BookStackMCPServer {
     private validator;
     private tools;
     private resources;
+    private verbose;
     constructor(configOverrides?: Partial<Config>);
+    /**
+     * Emits a detailed debug log for a request or response payload.
+     * Only active when VERBOSE=1/true/True/TRUE is set.
+     */
+    private logVerbose;
     /**
      * Setup all tools for BookStack API endpoints
      */

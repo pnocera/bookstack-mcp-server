@@ -265,6 +265,7 @@ function spawnChild(token) {
       MCP_TRANSPORT:       'stdio',
       BASE_URL:            BASE_URL,
       SERVER_INSTRUCTIONS: process.env.SERVER_INSTRUCTIONS || '',
+      VERBOSE:             process.env.VERBOSE || '',
     },
     stdio: ['pipe', 'pipe', 'inherit'], // stderr → host stderr for debugging
   });

@@ -1,14 +1,19 @@
 import winston, { Logger as WinstonLogger } from 'winston';
+import { parseBooleanEnv } from './env';
 
 /**
- * Logger utility using Winston
+ * Logger utility using Winston.
+ * When VERBOSE=1/true/True/TRUE is set, the effective log level is forced to
+ * "debug" regardless of LOG_LEVEL, so that verbose request/response logs are
+ * always emitted.
  */
 export class Logger {
   private static instance: Logger;
   private logger: WinstonLogger;
 
   private constructor() {
-    const level = process.env.LOG_LEVEL || 'info';
+    const verbose = parseBooleanEnv(process.env.VERBOSE);
+    const level = verbose ? 'debug' : (process.env.LOG_LEVEL || 'info');
     const format = process.env.LOG_FORMAT || 'pretty';
 
     const logFormat = format === 'json' 

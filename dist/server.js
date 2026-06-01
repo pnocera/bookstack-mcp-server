@@ -13,6 +13,7 @@ const types_js_1 = require("@modelcontextprotocol/sdk/types.js");
 const client_1 = require("./api/client");
 const manager_1 = require("./config/manager");
 const logger_1 = require("./utils/logger");
+const env_1 = require("./utils/env");
 const errors_1 = require("./utils/errors");
 const validator_1 = require("./validation/validator");
 const books_1 = require("./tools/books");
@@ -52,6 +53,7 @@ class BookStackMCPServer {
     constructor(configOverrides) {
         this.tools = new Map();
         this.resources = new Map();
+        this.verbose = (0, env_1.parseBooleanEnv)(process.env.VERBOSE);
         const baseConfig = manager_1.ConfigManager.getInstance().getConfig();
         // Merge overrides
         const config = { ...baseConfig };
@@ -91,6 +93,18 @@ class BookStackMCPServer {
             set: !!config.server.instructions,
             length: config.server.instructions?.length ?? 0,
         });
+        if (this.verbose) {
+            this.logger.debug('[VERBOSE] Verbose request/response logging is enabled');
+        }
+    }
+    /**
+     * Emits a detailed debug log for a request or response payload.
+     * Only active when VERBOSE=1/true/True/TRUE is set.
+     */
+    logVerbose(label, payload) {
+        if (!this.verbose)
+            return;
+        this.logger.debug(`[VERBOSE] ${label}`, { payload: JSON.stringify(payload, null, 2) });
     }
     /**
      * Setup all tools for BookStack API endpoints
@@ -163,12 +177,15 @@ class BookStackMCPServer {
                 };
             });
             this.logger.debug(`Listed ${tools.length} tools`);
-            return { tools };
+            const response = { tools };
+            this.logVerbose('ListTools response', response);
+            return response;
         });
         // Call tool handler
         this.server.setRequestHandler(types_js_1.CallToolRequestSchema, async (request) => {
             const { name, arguments: args } = request.params;
             this.logger.info(`Tool called: ${name}`, { arguments: args });
+            this.logVerbose('CallTool request', request.params);
             const tool = this.tools.get(name);
             if (!tool) {
                 throw new Error(`Unknown tool: ${name}`);
@@ -176,6 +193,7 @@ class BookStackMCPServer {
             try {
                 const result = await tool.handler(args || {});
                 this.logger.info(`Tool ${name} completed successfully`);
+                this.logVerbose('CallTool response', result);
                 return {
                     content: [{
                             type: 'text',
@@ -185,6 +203,7 @@ class BookStackMCPServer {
             }
             catch (error) {
                 this.logger.error(`Tool ${name} failed`, { error: error.message, stack: error.stack });
+                this.logVerbose('CallTool error', { name, error: error.message });
                 throw this.errorHandler.handleError(error);
             }
         });
@@ -197,12 +216,15 @@ class BookStackMCPServer {
                 mimeType: resource.mimeType,
             }));
             this.logger.debug(`Listed ${resources.length} resources`);
-            return { resources };
+            const response = { resources };
+            this.logVerbose('ListResources response', response);
+            return response;
         });
         // Read resource handler
         this.server.setRequestHandler(types_js_1.ReadResourceRequestSchema, async (request) => {
             const { uri } = request.params;
             this.logger.info(`Resource requested: ${uri}`);
+            this.logVerbose('ReadResource request', request.params);
             // Find matching resource by URI pattern
             let matchedResource;
             let _uriMatch;
@@ -229,6 +251,7 @@ class BookStackMCPServer {
             try {
                 const result = await matchedResource.handler(uri);
                 this.logger.info(`Resource ${uri} read successfully`);
+                this.logVerbose('ReadResource response', result);
                 return {
                     contents: [{
                             uri,
@@ -239,6 +262,7 @@ class BookStackMCPServer {
             }
             catch (error) {
                 this.logger.error(`Resource ${uri} failed`, { error: error.message, stack: error.stack });
+                this.logVerbose('ReadResource error', { uri, error: error.message });
                 throw this.errorHandler.handleError(error);
             }
         });
