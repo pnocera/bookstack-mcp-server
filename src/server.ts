@@ -348,6 +348,38 @@ if (require.main === module) {
     const app = express();
     app.use(express.json());
     const config = ConfigManager.getInstance().getConfig();
+    let mcpServer: BookStackMCPServer | undefined;
+
+    // Root endpoint - indicates server is running
+    app.get('/', (req, res) => {
+      res.json({
+        name: config.server.name,
+        version: config.server.version,
+        status: 'running',
+        mcp: true,
+        endpoints: {
+          health: '/health',
+          message: '/message (POST)',
+        },
+        documentation: 'Send MCP protocol messages to POST /message',
+      });
+    });
+
+    // Health check endpoint
+    app.get('/health', async (req, res) => {
+      try {
+        if (!mcpServer) {
+          mcpServer = new BookStackMCPServer();
+        }
+        const health = await mcpServer.getHealth();
+        res.status(health.status === 'healthy' ? 200 : 503).json(health);
+      } catch (error) {
+        res.status(503).json({
+          status: 'unhealthy',
+          error: (error as Error).message,
+        });
+      }
+    });
 
     app.post('/message', async (req, res) => {
       try {
@@ -376,6 +408,19 @@ if (require.main === module) {
           res.status(500).send('Internal Server Error');
         }
       }
+    });
+
+    // 404 handler for unknown routes
+    app.use((req, res) => {
+      res.status(404).json({
+        error: 'Not Found',
+        message: `${req.method} ${req.path} is not a valid endpoint`,
+        availableEndpoints: {
+          root: 'GET /',
+          health: 'GET /health',
+          message: 'POST /message',
+        },
+      });
     });
 
     const port = config.server.port || 3000;
