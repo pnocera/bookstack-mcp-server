@@ -1,6 +1,8 @@
 # Releasing
 
-Releases are automated, with one human gate. You never run `npm publish` by hand.
+Releases are automated, with one human gate. Normal releases never run
+`npm publish` by hand — the no-provenance [escape hatch](#doing-a-release-by-hand-escape-hatch)
+below is the last resort.
 
 ```
 merge a feat:/fix: PR to main
@@ -25,9 +27,10 @@ Both stages live in `.github/workflows/release-please.yml`.
 
 ## Before you enable publishing
 
-Three prerequisites. **Two are outside this repository and only you can do them.**
-Until the npm trusted publisher (#3) exists, nothing here can publish at all —
-which is what makes merging the automation itself safe. Do them **in this order**.
+Three prerequisites. **All three are outside this repository and require an
+owner/admin** — merging these files implements none of them. Until the npm trusted
+publisher (#3) exists, nothing here can publish at all, which is what makes merging
+the automation itself safe. Do them **in this order**.
 
 ### 1. Protect `main` — do this FIRST
 
@@ -82,6 +85,22 @@ Ensure no bypass actor can push the publishing workflow directly.
 Currently **disabled**. Without it release-please cannot open the Release PR at
 all.
 
+> ⚠️ **This does not make the Release PR's checks run.** Workflow runs triggered by
+> a `GITHUB_TOKEN`-created or `GITHUB_TOKEN`-updated PR start in an
+> **approval-required** state — someone with write access must click
+> **"Approve workflows to run"** on the PR. Prerequisite #1 requires both CI
+> contexts to pass, so until you approve them the Release PR sits with pending
+> checks and **cannot be merged**. This is a [separate mechanism][ghtoken] from the
+> setting above, and it is easy to misread as a ruleset, CI or release-please
+> failure.
+>
+> It recurs: every time release-please refreshes the PR the head changes, and the
+> new head's runs need approving again. If you want this unattended, create/update
+> the Release PR with a narrowly scoped GitHub App or PAT instead of
+> `GITHUB_TOKEN` — that is a real credential boundary, so decide it deliberately.
+
+[ghtoken]: https://docs.github.com/en/actions/concepts/security/github_token#when-github_token-triggers-workflow-runs
+
 ### 3. Configure the npm trusted publisher
 
 > **npmjs.com → the package → Settings → Trusted Publisher →**
@@ -127,6 +146,9 @@ lines.
 
 Before merging the first Release PR:
 
+0. **Approve its workflow runs** ("Approve workflows to run" on the PR) and let both
+   required checks pass — they do not start on their own (prerequisite #2). Redo
+   this after any bot refresh.
 1. In `CHANGELOG.md`: move the `[Unreleased]` body **into** the generated 2.0.0
    section; drop the generated summary where the curated text says it better;
    leave `## [Unreleased]` present but empty.
@@ -187,7 +209,9 @@ what release-please reads.
   tarball.
 - **CI** (`ci.yml`) — typecheck, 500+ tests, Biome, Docker build + image smoke.
   **Only actually a gate once the ruleset in prerequisite #1 is applied**; the
-  release workflow has no dependency on CI.
+  release workflow has no dependency on CI. On the bot's Release PR these runs
+  additionally need a human to **approve the workflow runs** before they start at
+  all — see prerequisite #2.
 - The live integration suite deliberately does **not** run in CI (it needs a real
   BookStack). Run it before a significant release:
   `docker compose up -d db bookstack && bun run test:integration`.
@@ -210,18 +234,34 @@ and passes green** while npm stays behind.
 
 **If `release-please` itself failed *after* creating the tag** — a rarer split
 state, e.g. an API error during its PR comment/label work. `publish` is skipped
-because its required job failed, and `rerun --failed` re-runs release-please, which
-now hits `DuplicateReleaseError` on the existing Release and fails again. **The
-pipeline cannot recover this by itself**, by design: the alternatives were a
-dispatch input that bypasses the merge gate, or a token that would let a branch
-copy publish. Options:
+because its required job failed. **The pipeline cannot recover this by itself**, by
+design: the alternatives were a dispatch input that bypasses the merge gate, or a
+token that would let a branch copy publish.
 
-- Publish that tag locally, accepting **no provenance** (below); or
-- Add the protected-environment recovery described in prerequisite #1, which gives
-  an external boundary a workflow copy cannot remove.
+> 🚨 **Retrying twice turns this state green while npm is still missing the
+> version.** Do not read a green re-run as reconciliation.
+>
+> The first `rerun --failed` finds the Release already exists — but it removes the
+> `autorelease: pending` label and adds `autorelease: tagged` **before** throwing
+> `DuplicateReleaseError`. That run is red, and the state has changed. Any *later*
+> rerun searches merged PRs for the pending label, no longer finds this one,
+> returns no releases and **succeeds**. `release_created` is then unset, so
+> `publish` is skipped and the workflow **passes green** — with npm still behind.
+>
+> After any post-tag failure, the run's colour tells you nothing. Check the
+> registry for the exact version:
+>
+> ```bash
+> npm view bookstack-mcp-server@X.Y.Z version   # non-zero/E404 => not published
+> ```
 
-GitHub released and npm missing is **visible** (the run is red) — not a silent
-failure, but it does need a human.
+Recover with one of:
+
+- The tag-pinned local publish below, accepting **no provenance**; or
+- The protected-environment OIDC reconciliation described in prerequisite #1 —
+  verify the tag and its merged-PR ancestry, publish only if that exact version is
+  absent, and fail on any ambiguous registry response. That is the durable fix: an
+  external boundary a workflow copy cannot remove.
 
 ---
 
@@ -247,16 +287,37 @@ PR** — that is the gate, and there is no supported way around it:
 # On a branch: bump package.json + .release-please-manifest.json to the SAME
 # version, and write the CHANGELOG entry yourself.
 git commit -am "chore(main): release X.Y.Z"
-# Open it, review it, merge it. Then tag the merge commit on main:
-git tag vX.Y.Z && git push --follow-tags
-gh release create vX.Y.Z --generate-notes
+# Open it, review it, merge it. Then tag THAT MERGE COMMIT, explicitly:
+git switch main && git pull --ff-only
+git rev-parse HEAD                       # this is the commit you are releasing — read it
+git tag -a vX.Y.Z -m "vX.Y.Z" <THAT_SHA> # annotated, at an explicit SHA
+git push origin refs/tags/vX.Y.Z         # push the tag itself, by name
+gh release create vX.Y.Z --verify-tag --generate-notes
 ```
+
+Every part of that is load-bearing, because the obvious version of it fails
+**silently**:
+
+| Instead of | Because |
+| --- | --- |
+| `git tag vX.Y.Z` | Creates a *lightweight* tag, which `git push --follow-tags` **does not push** — it carries only *annotated* tags. The push still exits 0. |
+| `git push --follow-tags` | Pushes tags only alongside refs it is actually updating, and only annotated ones. Push the tag by name and it always goes. |
+| `gh release create` bare | If the remote tag is missing, gh **creates one from the latest state of the default branch** and succeeds — so the Release can point at a different commit than the tag you made. `--verify-tag` aborts instead. |
+
+Chain those and the tag, the Release and the tarball can each describe a different
+commit, with nothing red anywhere. npm versions are immutable, so that is not
+repairable in place.
 
 Creating the Release does **not** publish (a `GITHUB_TOKEN`-created release
 triggers nothing). To publish it you must fix the automation, or publish locally
-and accept no provenance:
+and accept no provenance. Publish **from the tag**, never from whatever your
+checkout happens to be:
 
 ```bash
+git fetch origin tag vX.Y.Z --no-tags   # get the reviewed tag itself
+git checkout --detach refs/tags/vX.Y.Z  # detached: publish exactly what was tagged
+test "v$(node -p 'require("./package.json").version')" = vX.Y.Z || echo "MISMATCH — stop"
+bun install --frozen-lockfile
 npm publish --access public   # no provenance; last resort, needs local npm auth
 ```
 
