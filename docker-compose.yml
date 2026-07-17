@@ -1,0 +1,130 @@
+# Local end-to-end testing stack for the BookStack MCP server.
+#
+# Usage:
+#   1. Bring up the backing services:
+#        docker compose up -d db bookstack
+#   2. Wait for BookStack, then open http://localhost:6875
+#        (default linuxserver login: admin@admin.com / password)
+#   3. Create an API token: Edit Profile -> API Tokens -> Create Token.
+#      Combine the Token ID and Token Secret as "<id>:<secret>" and write it to
+#      a .env file next to this compose file, together with an inbound secret of
+#      your own choosing (`openssl rand -hex 32`):
+#        BOOKSTACK_API_TOKEN=<id>:<secret>
+#        MCP_AUTH_TOKEN=<random secret>
+#   4. Start the MCP server (reads both from .env):
+#        docker compose up -d mcp
+#        curl http://localhost:3000/health
+#        curl -X POST http://localhost:3000/message \
+#          -H "Authorization: Bearer $MCP_AUTH_TOKEN" \
+#          -H 'Content-Type: application/json' \
+#          -H 'Accept: application/json, text/event-stream' \
+#          -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+#
+# The MCP /health endpoint returns 503 until it can reach BookStack with a valid
+# token, so the `mcp` container stays "unhealthy" until step 3 is done. Without
+# MCP_AUTH_TOKEN the container fails to start at all, by design: POST /message
+# spends BOOKSTACK_API_TOKEN on the caller's behalf, so it must not be reachable
+# by an unauthenticated peer.
+
+services:
+  db:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: bookstack_root_secret
+      MARIADB_DATABASE: bookstackapp
+      MARIADB_USER: bookstack
+      MARIADB_PASSWORD: bookstack_secret
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      # NOTE: the mariadb:11 image no longer ships the legacy `mysqladmin`
+      # symlink (it was removed in favour of the `mariadb-*` names), so a
+      # `mysqladmin ping` healthcheck fails with "not found" (exit 127) and the
+      # db never becomes healthy -- which in turn blocks `bookstack` from ever
+      # starting via its `condition: service_healthy` dependency.
+      test: ["CMD-SHELL", "mariadb-admin ping -h 127.0.0.1 -u root -p\"$$MARIADB_ROOT_PASSWORD\" --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  bookstack:
+    # Pinned, not :latest. The tool contract in this repo (56 tools, field shapes,
+    # error codes) was verified against BookStack 26.05.2; a floating tag silently
+    # re-points at a future release and turns a BookStack change into a mystery
+    # failure in this suite. Currently resolves to v26.05.2-ls274.
+    # Bump deliberately, then re-run: RUN_INTEGRATION=1 bun test tests/integration
+    image: lscr.io/linuxserver/bookstack:version-v26.05.2
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Etc/UTC
+      APP_URL: http://localhost:6875
+      # linuxserver/bookstack requires a base64-encoded 32-byte app key.
+      # The value below is a THROWAWAY DEV key. Generate your own with:
+      #   docker run --rm --entrypoint /bin/bash \
+      #     lscr.io/linuxserver/bookstack:version-v26.05.2 appkey
+      # The --entrypoint override is required: without it the image runs its normal
+      # init first, which halts with "The application key is missing, halting init!"
+      # - the very key you are trying to generate - and hangs.
+      # (Or, inside the running container: php artisan key:generate --show)
+      APP_KEY: base64:W3lM3fogFWi74NibHK2vRjc29YVMdXL71ykVAL4TCHQ=
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_DATABASE: bookstackapp
+      DB_USERNAME: bookstack
+      DB_PASSWORD: bookstack_secret
+      # BookStack throttles its REST API per user (default 180/min). The
+      # integration suites drive all 56 tools and share one admin token, so the
+      # default becomes the bottleneck. This is a throwaway test instance, so
+      # raise it. NOTE: real deployments keep the 180 default — that is why the
+      # client retries on 429 and the test harness rides out throttling.
+      API_REQUESTS_PER_MIN: "5000"
+    volumes:
+      - bookstack_config:/config
+    ports:
+      - "6875:80"
+
+  mcp:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      - bookstack
+    environment:
+      # The bookstack container serves the API on port 80 internally; the base
+      # URL must include the /api suffix.
+      BOOKSTACK_BASE_URL: http://bookstack:80/api
+      # Created manually in the BookStack UI after first boot (see header notes),
+      # then supplied via .env / the shell environment. This is the OUTBOUND
+      # credential: an admin token the server spends on every tool call.
+      BOOKSTACK_API_TOKEN: ${BOOKSTACK_API_TOKEN:-}
+      # INBOUND authentication for POST /message - unrelated to the token above,
+      # and required: the container refuses to start without it, because
+      # /message dispatches all 56 tools (permanent-delete, users, roles,
+      # permissions) using BOOKSTACK_API_TOKEN. Generate with `openssl rand -hex 32`.
+      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:-}
+      SERVER_PORT: "3000"
+      NODE_ENV: production
+    ports:
+      # Bound to loopback, not 0.0.0.0. "3000:3000" publishes on every interface,
+      # and Docker's own iptables rules bypass most host firewalls, so the plain
+      # form quietly exposes the MCP endpoint to the whole network. The bearer
+      # token is the access control; this is the second layer. Change the host
+      # side deliberately if a remote client genuinely needs to reach this.
+      - "127.0.0.1:3000:3000"
+    healthcheck:
+      # Same bun-based probe as the Dockerfile (the image has bun, not node).
+      test: ["CMD", "bun", "-e", "const r=await fetch('http://localhost:3000/health').catch(()=>null); process.exit(r&&r.status===200?0:1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  db_data:
+  bookstack_config:

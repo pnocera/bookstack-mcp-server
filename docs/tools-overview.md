@@ -1,12 +1,33 @@
 # BookStack MCP Server Tools Overview
 
-## Complete Analysis of 47+ Tools Across 13 Categories
+## All 56 Tools Across 13 Categories
 
-This document provides a comprehensive overview of all tools implemented in the BookStack MCP server, their capabilities, usage patterns, and implementation details.
+This document provides an overview of every tool implemented in the BookStack MCP server, its capabilities, usage patterns, and implementation details.
 
 ## Executive Summary
 
-The BookStack MCP Server provides **47+ tools** organized into **13 distinct categories**, implementing a complete interface to the BookStack knowledge management system. Each tool follows consistent patterns for validation, error handling, and logging.
+The BookStack MCP Server provides **56 tools** (and **11 resources**) organized into **13 categories**, implementing the supported subset of the BookStack knowledge management API. Each tool follows consistent patterns for validation, error handling, and logging.
+
+The categories below are the ones returned by `bookstack_tool_categories`, and the
+per-category counts add up to the 56 tools the server registers at boot (it logs
+`Registered 56 tools` / `Registered 11 resources` on startup):
+
+| Section | Category | Tools |
+|---------|----------|-------|
+| 1 | `books` | 6 |
+| 2 | `pages` | 6 |
+| 3 | `chapters` | 6 |
+| 4 | `shelves` | 5 |
+| 5 | `users` | 5 |
+| 6 | `roles` | 5 |
+| 7 | `attachments` | 5 |
+| 8 | `images` | 5 |
+| 9 | `search` | 1 |
+| 10 | `recyclebin` | 3 |
+| 11 | `permissions` | 2 |
+| 12 | `system` | 2 |
+| 13 | `meta` | 5 |
+| | **Total** | **56** |
 
 ## Tool Categories Overview
 
@@ -161,30 +182,52 @@ The BookStack MCP Server provides **47+ tools** organized into **13 distinct cat
 
 | Tool Name | Description | Key Parameters |
 |-----------|-------------|----------------|
-| `bookstack_search` | Advanced search across all content | query (required), page, count |
+| `bookstack_search` | Search across shelves, books, chapters and pages | query (required), page (default 1), count (1-100, default 20) |
+
+**Search syntax** (BookStack's own; verified against v26.05.2):
+
+| Form | Meaning |
+|------|---------|
+| `bare terms` | Match names and content |
+| `"exact phrase"` | Requires those words together |
+| `{type:page}` | Restrict content type; combine with `\|`, e.g. `{type:page\|chapter}` |
+| `[tag]` / `[tag=value]` | Match a tag, or a tag with a value |
+| `{created_by:me}` | Also `updated_by` / `owned_by`; takes `me` or a username slug |
+| `{in_name:text}` / `{in_body:text}` | Field-specific matching |
+| `-"phrase"`, `-[tag]`, `-{filter}` | Negation. A **bare term cannot be negated** |
+
+> ⚠️ Two easy mistakes, both of which **silently match everything** instead of erroring:
+> - Entity type is `{type:page}`, not `[page]` — `[page]` is tag syntax and looks for a
+>   tag *named* "page".
+> - Tags are `[name=value]`, never `{tag:name=value}` — an unrecognised `{filter:...}`
+>   term is discarded by BookStack rather than rejected.
 
 **Search Features**:
-- Advanced search syntax support
-- Exact phrase matching with quotes
-- Field-specific searches (name:, description:)
-- Entity type filters ([book], [page], [chapter], [shelf])
-- Tag-based searching (tag:value)
-- Boolean operators
-- Pagination support
+- Page results carry only snippets, on `preview_html` — follow up with `bookstack_pages_read` for full content
+- Each result carries a `type` of `bookshelf`, `book`, `chapter` or `page`
+- Pagination via `page` (not `offset`); `count` caps at **100** here, unlike the 500 of the list tools
 
 ### 10. Recycle Bin Management (3 tools)
 **Category**: `recyclebin`  
 **Purpose**: Manage deleted items
 
+> ⚠️ The tool names have **no underscore** between "recycle" and "bin":
+> `bookstack_recyclebin_*`, not `bookstack_recycle_bin_*`.
+
 | Tool Name | Description | Key Parameters |
 |-----------|-------------|----------------|
-| `bookstack_recycle_bin_list` | List deleted items | count, offset |
-| `bookstack_recycle_bin_restore` | Restore deleted item to original location | deletion_id (required) |
-| `bookstack_recycle_bin_delete_permanently` | Permanently delete item | deletion_id (required) |
+| `bookstack_recyclebin_list` | List deleted items | count (1-500, default 20), offset, sort |
+| `bookstack_recyclebin_restore` | Restore deleted item to original location | id (required) |
+| `bookstack_recyclebin_delete_permanently` | Permanently destroy an entry and its content | id (required) |
+
+**The `id` is the deletion entry's id, not the deleted item's id.** Take it from
+`bookstack_recyclebin_list`; the deleted book/page's own id is reported separately as
+`deletable_id`. Passing the latter is the usual cause of a `NOT_FOUND`.
 
 **Recovery Features**:
 - Safe deletion with recovery option
-- Audit trail for deleted content
+- Top-level listing: deleting a book creates one entry, not one per page inside it
+- Restore and purge cascade — `restore_count` / `delete_count` report how many items were affected
 - Permanent deletion capability
 
 ### 11. Permission Management (2 tools)
@@ -202,32 +245,55 @@ The BookStack MCP Server provides **47+ tools** organized into **13 distinct cat
 - Permission inheritance settings
 - View, create, update, delete permissions
 
-### 12. Audit Log (1 tool)
-**Category**: `audit`  
-**Purpose**: Track system activities
-
-| Tool Name | Description | Key Parameters |
-|-----------|-------------|----------------|
-| `bookstack_audit_log_list` | List audit log entries | count, offset, sort, filter (event, user_id, entity_type, entity_id, date_from, date_to) |
-
-**Audit Features**:
-- Comprehensive activity tracking
-- User action monitoring
-- Entity-specific filtering
-- Date range queries
-- Security and compliance support
-
-### 13. System Information (6 tools)
-**Category**: `system` / `meta`  
-**Purpose**: Server information and help
+### 12. System & Audit Log (2 tools)
+**Category**: `system`  
+**Purpose**: Instance information and activity tracking
 
 | Tool Name | Description | Key Parameters |
 |-----------|-------------|----------------|
 | `bookstack_system_info` | Get BookStack instance information | none |
+| `bookstack_audit_log_list` | List audit log entries | count (1-500, default 20), offset, sort, filter (type, user_id, loggable_type, loggable_id, date_from, date_to) |
+
+> ⚠️ The audit filters are `type` / `loggable_type` / `loggable_id` — **not**
+> `event` / `entity_type` / `entity_id`. Those three were removed because BookStack
+> ignores them: an unrecognised filter is silently dropped, so a call using them
+> returns a broad **unfiltered** log rather than an error.
+
+**Audit filters** (all exact-match; there is no partial or wildcard matching):
+
+| Filter | Type | Notes |
+|--------|------|-------|
+| `type` | string | The whole event name, e.g. `page_create`, `page_update`, `book_delete`. `"page"` matches nothing. |
+| `user_id` | integer | The acting user. |
+| `loggable_type` | string | The affected item's type. BookStack only records this for `page`, `book`, `chapter`, `bookshelf`; logins and role changes have it null and can never match. |
+| `loggable_id` | integer | The affected item's id. Best combined with `loggable_type`, since ids are only unique within a type. |
+| `date_from` | string | `2026-07-16` or `2026-07-16 09:20:00`. |
+| `date_to` | string | As above; a bare date resolves to that day at 00:00:00. |
+
+```javascript
+// Who deleted pages this month
+bookstack_audit_log_list({ filter: { type: "page_delete", date_from: "2026-07-01" } })
+
+// Everything that happened to page 42
+bookstack_audit_log_list({ filter: { loggable_type: "page", loggable_id: 42 } })
+```
+
+**Audit Features**:
+- User action monitoring, most recent first (`-created_at` default)
+- Date range queries
+- Requires a token whose user can manage both users and system settings
+- Purging an item from the recycle bin nulls `loggable_id`/`loggable_type` on its entries and moves the item's name into `detail` — so purged content is traceable only by `type` + `detail`
+
+### 13. Meta / Self-Description (5 tools)
+**Category**: `meta`  
+**Purpose**: Ask the server about itself
+
+| Tool Name | Description | Key Parameters |
+|-----------|-------------|----------------|
 | `bookstack_server_info` | Get comprehensive MCP server information | section (all/capabilities/tools/resources/examples/errors) |
 | `bookstack_tool_categories` | Get detailed tool category information | category |
-| `bookstack_usage_examples` | Get workflow examples | workflow |
-| `bookstack_error_guides` | Get error handling guidance | error_code |
+| `bookstack_usage_examples` | Get workflow examples | workflow (create_documentation/organize_content/user_management/search_content/export_data) |
+| `bookstack_error_guides` | Get error handling guidance | error_code (UNAUTHORIZED/NOT_FOUND/VALIDATION_ERROR) |
 | `bookstack_help` | Interactive help system | topic, context |
 
 **Meta Features**:
@@ -250,6 +316,18 @@ The BookStack MCP Server provides **47+ tools** organized into **13 distinct cat
   filter: object (entity-specific filters)
 }
 ```
+
+> ⚠️ `count` above 500 is **rejected, not clamped**. With `VALIDATION_STRICT_MODE`
+> (default `true`) the schema's upper bound fails the call at the boundary:
+>
+> ```json
+> { "code": -32602, "message": "MCP error -32602: Validation failed",
+>   "data": { "type": "validation_error",
+>             "validation": [{ "field": "count", "message": "Too big: expected number to be <=500" }] } }
+> ```
+>
+> This applies to the audit log and recycle bin listings too. `bookstack_search` is
+> the exception in the other direction: its `count` caps at 100.
 
 **Content Parameters** (used across content tools):
 ```typescript
@@ -401,9 +479,10 @@ Each tool follows the same pattern:
 
 ### Performance Optimization
 - Use pagination for large datasets
-- Filter results at the API level
-- Cache frequently accessed content
-- Batch operations when possible
+- Filter results at the API level with a list tool's `filter`, rather than fetching everything and filtering locally
+- **There is no batch tool and no batching layer** (`supports_batch_operations: false`): every tool acts on a single item, so prefer one filtered list call over many individual reads
+- **The server caches nothing** (`supports_caching: false`): every call goes through to BookStack, so avoid polling loops — outbound requests are rate-limited
+- Prefer `markdown`/`plaintext` exports for LLM context; `html` and `pdf` cost far more tokens
 
 ### Error Handling
 - Always validate inputs before API calls
@@ -425,16 +504,31 @@ Each tool follows the same pattern:
 
 ## API Coverage
 
-The BookStack MCP Server provides **complete coverage** of the BookStack REST API:
+The BookStack MCP Server covers a **subset** of the BookStack REST API — the families
+below. It is not a complete mapping of every endpoint.
 
-- ✅ **Content Management**: Full CRUD operations for all content types
-- ✅ **User Management**: Complete user and role administration
-- ✅ **Permission System**: Granular access control
-- ✅ **File Management**: Attachments and images
-- ✅ **Search**: Advanced search across all content
-- ✅ **Export**: Multiple format support
-- ✅ **Audit**: Complete activity tracking
-- ✅ **System**: Health and information endpoints
+**Covered:**
+
+- ✅ **Content Management**: CRUD for books, chapters, pages and shelves
+- ✅ **User Management**: User and role administration
+- ✅ **Permission System**: Content-level permission overrides
+- ✅ **File Management**: Attachments and image gallery
+- ✅ **Search**: `GET /api/search`
+- ✅ **Export**: `html`, `pdf`, `plaintext`, `markdown`
+- ✅ **Audit**: `GET /api/audit-log`
+- ✅ **System**: `GET /api/system`
+- ✅ **Recycle bin**: list, restore, purge
+
+**Not exposed** (present in the BookStack API, no tool here — checked against
+v26.05.2 `docs.json`):
+
+- ❌ **Comments** — `/api/comments` (list, create, read, update, delete)
+- ❌ **Imports** — `/api/imports` (list, create, read, run, delete)
+- ❌ **Tags** — `/api/tags/names`, `/api/tags/values-for-name`
+- ❌ **Image data** — `/api/image-gallery/{id}/data`, `/api/image-gallery/url/data`
+- ❌ **ZIP export** — `/export/zip` on books, chapters and pages
+
+If you need one of these, call the BookStack API directly.
 
 ## Extensibility
 
@@ -446,6 +540,6 @@ The modular architecture allows for easy extension:
 
 ## Conclusion
 
-The BookStack MCP Server represents a comprehensive, production-ready implementation providing LLMs with complete access to BookStack functionality. With 47+ tools across 13 categories, robust error handling, comprehensive validation, and extensive documentation, it enables sophisticated knowledge management workflows while maintaining security and reliability.
+The BookStack MCP Server is a production-ready implementation providing LLMs with access to the supported subset of BookStack's API. With 56 tools across 13 categories, 11 resources, robust error handling, strict validation, and extensive documentation, it enables sophisticated knowledge management workflows while maintaining security and reliability.
 
 The consistent patterns, extensive examples, and self-documenting capabilities make it easy for LLMs to understand and effectively utilize the full power of the BookStack platform through the MCP protocol.

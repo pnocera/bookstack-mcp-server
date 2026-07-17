@@ -1,0 +1,33 @@
+# Dependencies and build output (deps are reinstalled inside the image)
+node_modules
+dist
+coverage
+
+# VCS and CI
+.git
+.gitignore
+.github
+
+# Local environment files — keep the example, drop real secrets
+.env
+.env.*
+!.env.example
+
+# Tests and docs are not needed at runtime
+tests
+docs
+
+# Tooling / editor / agent config
+.claude
+biome.json
+.npmignore
+
+# Docker files themselves and logs
+Dockerfile
+.dockerignore
+docker-compose.yml
+docker-compose.yaml
+*.log
+
+# NOTE: bun.lock and src/ are intentionally NOT ignored — both are required
+# to install production deps and run the server inside the image.

@@ -7,3 +7,7 @@ claude*
 CLAUDE.md
 ruv*
 .prompts
+# Codex review artifacts
+reviews/
+qa/
+.codegraph/

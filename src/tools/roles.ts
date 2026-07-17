@@ -1,11 +1,22 @@
-import { BookStackClient } from '../api/client';
-import { ValidationHandler } from '../validation/validator';
-import { Logger } from '../utils/logger';
-import { MCPTool } from '../types';
+import type { BookStackClient } from '../api/client';
+import {
+  type CreateRoleParams,
+  type MCPTool,
+  type RolesListInput,
+  toRolesListParams,
+  trimmedMinLengthPattern,
+  type UpdateRoleParams,
+  withClosedSchemas,
+} from '../types';
+import type { Logger } from '../utils/logger';
+import type { IdRequest, ValidationHandler } from '../validation/validator';
+
+/** The whole `bookstack_roles_update` request: the role to update, plus the changes. */
+type UpdateRoleRequest = UpdateRoleParams & IdRequest;
 
 /**
  * Role management tools for BookStack MCP Server
- * 
+ *
  * Provides 5 tools for complete role lifecycle management:
  * - List, create, read, update, and delete roles
  */
@@ -20,13 +31,13 @@ export class RoleTools {
    * Get all role tools
    */
   getTools(): MCPTool[] {
-    return [
+    return withClosedSchemas([
       this.createListRolesTool(),
       this.createCreateRoleTool(),
       this.createReadRoleTool(),
       this.createUpdateRoleTool(),
       this.createDeleteRoleTool(),
-    ];
+    ]);
   }
 
   /**
@@ -35,7 +46,8 @@ export class RoleTools {
   private createListRolesTool(): MCPTool {
     return {
       name: 'bookstack_roles_list',
-      description: 'List all user roles. Roles define what actions users can perform (e.g., "Editor", "Admin").',
+      description:
+        'List the roles defined in this instance. A role is a named set of system permissions (e.g. "Editor", "Admin") that gets assigned to users - use bookstack_users_list for the people themselves. Every role in the listing carries its own `mfa_enforced`, `users_count` and `permissions_count`.',
       category: 'roles',
       inputSchema: {
         type: 'object',
@@ -55,49 +67,83 @@ export class RoleTools {
           },
           sort: {
             type: 'string',
-            enum: ['display_name', 'system_name', 'created_at', 'updated_at'],
+            enum: [
+              'display_name',
+              'created_at',
+              'updated_at',
+              '-display_name',
+              '-created_at',
+              '-updated_at',
+            ],
             default: 'display_name',
-            description: 'Sort field.',
+            description: 'Sort field. Prefix with "-" to reverse the direction.',
           },
           filter: {
             type: 'object',
             properties: {
               display_name: {
                 type: 'string',
-                description: 'Filter by name.',
+                description: 'Filter by exact display name (not a substring of it).',
               },
-              system_name: {
+              description: {
                 type: 'string',
-                description: 'Filter by system identifier.',
+                description: 'Filter by exact description.',
+              },
+              external_auth_id: {
+                type: 'string',
+                description: 'Filter by exact external auth ID (LDAP/SSO).',
+              },
+              mfa_enforced: {
+                type: 'boolean',
+                description: 'Filter by whether the role enforces MFA.',
               },
             },
-            description: 'Filters.',
+            description:
+              "Filters, matched exactly. BookStack does not expose a role's system_name for filtering or sorting, so it cannot be used here.",
           },
         },
       },
       examples: [
         {
-          description: 'List roles',
+          description: 'List every role',
           input: {},
-          expected_output: 'List of roles',
-          use_case: 'Checking available roles',
-        }
+          expected_output:
+            '{ data: [ { id, display_name, description, system_name, mfa_enforced, users_count, permissions_count, ... } ], total }',
+          use_case: 'Checking which roles exist before assigning one',
+        },
+        {
+          description: 'Find a role by its exact display name',
+          input: { filter: { display_name: 'Editor' } },
+          expected_output: 'A { data, total } listing holding the matching role, or empty if none',
+          use_case: 'Resolving a role ID before assigning it to a user',
+        },
       ],
       usage_patterns: [
-        'Use to find role IDs for assigning to users',
+        'Use to turn a role name into the id that `bookstack_users_create` / `bookstack_users_update` need - ids are per-instance and must not be guessed.',
+        'The listing gives permission *counts* only; `bookstack_roles_read` returns the actual permission names.',
       ],
-      related_tools: ['bookstack_users_create'],
+      related_tools: ['bookstack_users_create', 'bookstack_roles_read'],
       error_codes: [
         {
           code: 'UNAUTHORIZED',
-          description: 'Insufficient permissions',
-          recovery_suggestion: 'Requires admin privileges',
-        }
+          description:
+            'The API token lacks the "user-roles-manage" permission BookStack requires here',
+          recovery_suggestion:
+            'Use a token belonging to a user whose role grants "user-roles-manage" (the Admin role has it)',
+        },
       ],
-      handler: async (params: any) => {
-        this.logger.debug('Listing roles', params);
-        const validatedParams = this.validator.validateParams<any>(params, 'rolesList');
-        return await this.client.listRoles(validatedParams);
+      handler: async (params: unknown) => {
+        const validatedParams = this.validator.validateParams<RolesListInput>(params, 'rolesList');
+        // Filter KEYS only, after validation. See the same line in src/tools/books.ts.
+        this.logger.debug('Listing roles', {
+          count: validatedParams.count,
+          offset: validatedParams.offset,
+          sort: validatedParams.sort,
+          filters: Object.keys(validatedParams.filter ?? {}),
+        });
+        // mfa_enforced is a boolean to callers; BookStack's tinyint column only
+        // compares correctly against 1/0.
+        return await this.client.listRoles(toRolesListParams(validatedParams));
       },
     };
   }
@@ -108,19 +154,30 @@ export class RoleTools {
   private createCreateRoleTool(): MCPTool {
     return {
       name: 'bookstack_roles_create',
-      description: 'Create a new user role with specific permissions.',
+      description:
+        'Create a new role: a named set of system permissions that can then be assigned to users with bookstack_users_create / bookstack_users_update. Creating a role assigns it to nobody.',
       inputSchema: {
         type: 'object',
         required: ['display_name'],
         properties: {
           display_name: {
             type: 'string',
+            minLength: 3,
+            // The minimum, stated as BookStack applies it: AFTER trimming. `minLength: 3`
+            // counts raw characters, so '   a' satisfied it while upstream 422s on the one
+            // character it keeps (see trimmedMinLengthPattern in src/types.ts for the live
+            // evidence). The pattern says the same thing in a form JSON Schema can express,
+            // so a client generating from this contract is not offered a call the server
+            // would forward only to have it refused. Both keywords stay: the pattern
+            // implies the minLength, and the minLength is what a generator reads.
+            pattern: trimmedMinLengthPattern(3),
             maxLength: 180,
-            description: 'Name of the role.',
+            description:
+              'Name of the role. BookStack requires 3 to 180 characters, counted AFTER it trims the value - so "   a" is rejected as one character, not accepted as four.',
           },
           description: {
             type: 'string',
-            maxLength: 1000,
+            maxLength: 180,
             description: 'Short description.',
           },
           mfa_enforced: {
@@ -130,44 +187,49 @@ export class RoleTools {
           },
           external_auth_id: {
             type: 'string',
+            maxLength: 180,
             description: 'External ID for LDAP/SSO syncing.',
           },
           permissions: {
-            type: 'object',
-            properties: {
-              'content-export': { type: 'boolean' },
-              'settings-manage': { type: 'boolean' },
-              'users-manage': { type: 'boolean' },
-              'user-roles-manage': { type: 'boolean' },
-              'restrictions-manage-all': { type: 'boolean' },
-              'restrictions-manage-own': { type: 'boolean' },
-            },
-            description: 'System-level permissions.',
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'System-level permissions to grant, as an array of permission-name strings (e.g. ["content-export", "users-manage"]). Only the names listed are granted; omitted ones are not. Names BookStack does not recognise are dropped without an error, so a typo silently grants nothing.',
           },
         },
       },
       examples: [
         {
-          description: 'Create an editor role',
-          input: { display_name: 'Junior Editor', permissions: { 'content-export': true } },
-          expected_output: 'Role object',
+          description: 'Create a role that can export content but little else',
+          input: { display_name: 'Junior Editor', permissions: ['content-export'] },
+          expected_output:
+            'The created role: { id, display_name, mfa_enforced, permissions: ["content-export"], users: [], created_at, updated_at }. Note the absent description and system_name - create echoes back only the fields that were actually set.',
           use_case: 'Defining new access levels',
-        }
+        },
       ],
       usage_patterns: [
-        'Define clear roles to manage user access effectively',
+        'Copy the permission names from an existing role via `bookstack_roles_read` rather than inventing them: unknown names are silently ignored.',
+        'The create response carries only the fields that were set, so one you omitted (description, external_auth_id) is absent rather than null, and `system_name` never appears at all. Read the role back with `bookstack_roles_read` if you need its settled shape - there, description is null and the others are empty strings.',
       ],
-      related_tools: ['bookstack_roles_list'],
+      related_tools: ['bookstack_roles_list', 'bookstack_roles_read'],
       error_codes: [
         {
           code: 'VALIDATION_ERROR',
-          description: 'Invalid name',
-          recovery_suggestion: 'Provide display_name',
-        }
+          description:
+            'display_name missing, shorter than 3 characters once trimmed, or longer than 180 (description and external_auth_id also cap at 180)',
+          recovery_suggestion:
+            'Provide a display_name of 3-180 characters, counting only what survives trimming',
+        },
       ],
-      handler: async (params: any) => {
-        this.logger.info('Creating role', { display_name: params.display_name });
-        const validatedParams = this.validator.validateParams<any>(params, 'roleCreate');
+      handler: async (params: unknown) => {
+        const validatedParams = this.validator.validateParams<CreateRoleParams>(
+          params,
+          'roleCreate'
+        );
+        // The name's size, not the name. See the same line in src/tools/books.ts.
+        this.logger.info('Creating role', {
+          display_name_length: validatedParams.display_name.length,
+        });
         return await this.client.createRole(validatedParams);
       },
     };
@@ -179,38 +241,41 @@ export class RoleTools {
   private createReadRoleTool(): MCPTool {
     return {
       name: 'bookstack_roles_read',
-      description: 'Get details of a specific role, including its system permissions.',
+      description:
+        'Get one role by id, with its full list of system permission names and a summary of the users assigned to it. The listing tool only reports counts, so this is where the actual permissions come from.',
       inputSchema: {
         type: 'object',
         required: ['id'],
         properties: {
           id: {
             type: 'integer',
-            description: 'ID of the role.',
+            minimum: 1,
+            description: 'ID of the role. Resolve a role name to an id with bookstack_roles_list.',
           },
         },
       },
       examples: [
         {
-          description: 'Read role details',
+          description: 'Read a role to see exactly what it grants',
           input: { id: 3 },
-          expected_output: 'Role object with permissions',
-          use_case: 'Checking what a role can do',
-        }
+          expected_output:
+            'The role, with `permissions` as an array of permission-name strings and `users` as the accounts holding it: { id, display_name, permissions: ["content-export", ...], users: [ { id, name, slug } ], ... }',
+          use_case: 'Auditing what a role can do, and who has it',
+        },
       ],
       usage_patterns: [
-        'Use to audit role capabilities',
+        'Call this before `bookstack_roles_update`: that tool replaces the permission set wholesale, so you need the current names to keep any of them.',
       ],
-      related_tools: ['bookstack_roles_list'],
+      related_tools: ['bookstack_roles_list', 'bookstack_roles_update'],
       error_codes: [
         {
           code: 'NOT_FOUND',
-          description: 'Role not found',
-          recovery_suggestion: 'Verify ID',
-        }
+          description: 'No role has that id',
+          recovery_suggestion: 'Confirm the id with bookstack_roles_list',
+        },
       ],
-      handler: async (params: any) => {
-        const id = this.validator.validateId(params.id);
+      handler: async (params: unknown) => {
+        const { id } = this.validator.validateParams<IdRequest>(params, 'id');
         this.logger.debug('Reading role', { id });
         return await this.client.getRole(id);
       },
@@ -223,72 +288,97 @@ export class RoleTools {
   private createUpdateRoleTool(): MCPTool {
     return {
       name: 'bookstack_roles_update',
-      description: 'Update a role\'s name, description, or permissions.',
+      description:
+        "Update an existing role's name, description, or permissions, by id. Only the fields you send change - but `permissions`, if sent, replaces the role's entire permission set.",
       inputSchema: {
         type: 'object',
         required: ['id'],
         properties: {
           id: {
             type: 'integer',
-            description: 'Role ID to update',
+            minimum: 1,
+            description: 'Role ID to update.',
           },
           display_name: {
             type: 'string',
-            minLength: 1,
+            minLength: 3,
+            // Same rule as create, and upstream applies it here too: the update rule is
+            // ['string','min:3','max:180'], and a padded short name survives trimming as a
+            // non-empty value, so min:3 runs and 422s (PUT /api/roles/2 {"display_name":
+            // "   a"}, verified live - see trimmedMinLengthPattern in src/types.ts).
+            //
+            // The blank case is the exception, and the one place this is stricter than
+            // upstream: '   ' trims to '', which Laravel treats as ABSENT, so every
+            // non-implicit rule on it is skipped and BookStack blanks the role's name on a
+            // 200 rather than erroring. The pattern refuses that too, for the reason
+            // NONBLANK_PATTERN gives: silent destruction of a name is not an outcome worth
+            // forwarding a call for.
+            pattern: trimmedMinLengthPattern(3),
             maxLength: 180,
-            description: 'New display name',
+            description:
+              'New display name. BookStack requires 3 to 180 characters, counted AFTER it trims the value - so "   a" is rejected as one character, not accepted as four.',
           },
           description: {
             type: 'string',
-            maxLength: 1000,
-            description: 'New description',
+            maxLength: 180,
+            description: 'New description.',
           },
           mfa_enforced: {
             type: 'boolean',
-            description: 'Enforce MFA',
+            description: 'Require MFA for users in this role.',
           },
           external_auth_id: {
             type: 'string',
-            description: 'External ID',
+            maxLength: 180,
+            description: 'External ID for LDAP/SSO syncing.',
           },
           permissions: {
-            type: 'object',
-            properties: {
-              'content-export': { type: 'boolean' },
-              'settings-manage': { type: 'boolean' },
-              'users-manage': { type: 'boolean' },
-              'user-roles-manage': { type: 'boolean' },
-              'restrictions-manage-all': { type: 'boolean' },
-              'restrictions-manage-own': { type: 'boolean' },
-            },
-            description: 'New permissions (merges/updates existing)',
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'The role\'s complete new permission set, as an array of permission-name strings (e.g. ["content-export"]). This REPLACES the existing set rather than merging into it, so include every permission the role should keep; `[]` clears them all. Names BookStack does not recognise are dropped without an error.',
           },
         },
       },
       examples: [
         {
-          description: 'Grant export permission',
-          input: { id: 3, permissions: { 'content-export': true } },
-          expected_output: 'Updated role',
-          use_case: 'Elevating privileges',
-        }
+          description:
+            "Set the role's permissions to exactly these two, dropping any it held before",
+          input: { id: 3, permissions: ['content-export', 'restrictions-manage-own'] },
+          expected_output:
+            'The updated role, whose `permissions` is now exactly ["content-export", "restrictions-manage-own"]',
+          use_case: 'Redefining what a role grants',
+        },
       ],
       usage_patterns: [
-        'Read role first to see current permissions',
+        'To *add* a permission, read the role first (`bookstack_roles_read`) and send its current permissions plus the new one - sending only the new one silently revokes the rest.',
       ],
       related_tools: ['bookstack_roles_read'],
       error_codes: [
         {
           code: 'NOT_FOUND',
-          description: 'Role not found',
-          recovery_suggestion: 'Verify ID',
-        }
+          description: 'No role has that id',
+          recovery_suggestion: 'Confirm the id with bookstack_roles_list',
+        },
+        {
+          code: 'VALIDATION_ERROR',
+          description:
+            'display_name shorter than 3 characters once trimmed, or a field over its 180 cap',
+          recovery_suggestion:
+            'Keep display_name between 3 and 180 characters, counting only what survives trimming',
+        },
       ],
-      handler: async (params: any) => {
-        const id = this.validator.validateId(params.id);
-        this.logger.info('Updating role', { id, fields: Object.keys(params).filter(k => k !== 'id') });
-        const { id: _, ...updateParams } = params;
-        const validatedParams = this.validator.validateParams<any>(updateParams, 'roleUpdate');
+      handler: async (params: unknown) => {
+        // Validate first, destructure second: `id` is part of the request, so pulling it
+        // out beforehand would hide the rest of the object from the strict schema.
+        const { id, ...validatedParams } = this.validator.validateParams<UpdateRoleRequest>(
+          params,
+          'roleUpdate'
+        );
+        this.logger.info('Updating role', {
+          id,
+          fields: Object.keys(validatedParams),
+        });
         return await this.client.updateRole(id, validatedParams);
       },
     };
@@ -300,44 +390,42 @@ export class RoleTools {
   private createDeleteRoleTool(): MCPTool {
     return {
       name: 'bookstack_roles_delete',
-      description: 'Delete a role. You can optionally migrate users from this role to another one.',
+      description:
+        "Permanently delete a role. Users assigned to it simply lose it, keeping their other roles; BookStack's API offers no way to move them to another role as part of the deletion, so re-assign them first if they need a replacement. Roles do not go through the recycle bin and cannot be restored.",
       inputSchema: {
         type: 'object',
         required: ['id'],
         properties: {
           id: {
             type: 'integer',
-            description: 'ID of the role to delete',
-          },
-          migrate_ownership_id: {
-            type: 'integer',
-            description: 'ID of another role to move assigned users to.',
+            minimum: 1,
+            description: 'ID of the role to delete.',
           },
         },
       },
       examples: [
         {
-          description: 'Delete role and migrate users',
-          input: { id: 3, migrate_ownership_id: 2 },
-          expected_output: 'Success message',
-          use_case: 'Consolidating roles',
-        }
+          description: 'Delete a role',
+          input: { id: 3 },
+          expected_output: '{ success: true, message: "Role 3 deleted successfully" }',
+          use_case: 'Removing an access level that is no longer used',
+        },
       ],
       usage_patterns: [
-        'Always consider where existing users will go when deleting a role',
+        'Deleting a role strips it from its users without replacement. To preserve their access, first list the affected users and update each one onto the replacement role, then delete.',
       ],
-      related_tools: ['bookstack_roles_list'],
+      related_tools: ['bookstack_roles_list', 'bookstack_users_update'],
       error_codes: [
         {
           code: 'NOT_FOUND',
-          description: 'Role not found',
-          recovery_suggestion: 'Verify ID',
-        }
+          description: 'No role has that id',
+          recovery_suggestion: 'Confirm the id with bookstack_roles_list',
+        },
       ],
-      handler: async (params: any) => {
-        const id = this.validator.validateId(params.id);
-        this.logger.warn('Deleting role', { id, migrate_to: params.migrate_ownership_id });
-        await this.client.deleteRole(id, params.migrate_ownership_id);
+      handler: async (params: unknown) => {
+        const { id } = this.validator.validateParams<IdRequest>(params, 'id');
+        this.logger.warn('Deleting role', { id });
+        await this.client.deleteRole(id);
         return { success: true, message: `Role ${id} deleted successfully` };
       },
     };
