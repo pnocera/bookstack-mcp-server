@@ -516,7 +516,39 @@ npm pack --dry-run                 # this is exactly what will ship
 read -r -p "Publish $TAG from $HEAD_SHA? Type the version to confirm: " OK
 [ "$OK" = "$VERSION" ] || { echo "aborted" >&2; exit 1; }
 
+# NEVER a bare `npm publish` here. Its default tag is `latest`, so recovering an
+# older version AFTER a newer one shipped drags `latest` backwards and
+# `npm install` starts resolving to the old release — green, and invisible. The
+# workflow refuses that (see "Refuse to move `latest` backwards"); this path is
+# reachable precisely when the workflow did NOT run, so it needs the same guard.
+ERR="$(mktemp)"
+if LATEST="$(npm view bookstack-mcp-server version --registry=https://registry.npmjs.org 2>"$ERR")"; then
+  NEWEST="$(printf '%s\n%s\n' "$LATEST" "$VERSION" | sort -V | tail -1)"
+  if [ "$NEWEST" = "$LATEST" ] && [ "$LATEST" != "$VERSION" ]; then
+    echo "npm latest is $LATEST, newer than $VERSION." >&2
+    echo "Publishing under latest would move it BACKWARDS. If this is a deliberate" >&2
+    echo "backfill, re-run with an explicit tag:" >&2
+    echo "  npm publish --access public --registry=https://registry.npmjs.org --tag backfill" >&2
+    exit 1
+  fi
+elif ! grep -q E404 "$ERR"; then
+  echo "Could not read the registry; refusing to publish blind." >&2; cat "$ERR" >&2; exit 1
+fi
+
 npm publish --access public --registry=https://registry.npmjs.org
+
+# Assert the postcondition. Publishing succeeding is not evidence that `latest`
+# points where you think: npm's client-side protection against implicitly
+# stealing `latest` arrived in npm 11, and this script does not pin the CLI.
+PUBLISHED="$(npm view "bookstack-mcp-server@$VERSION" version --registry=https://registry.npmjs.org)"
+NOW_LATEST="$(npm view bookstack-mcp-server version --registry=https://registry.npmjs.org)"
+[ "$PUBLISHED" = "$VERSION" ] || { echo "$VERSION is not on the registry" >&2; exit 1; }
+[ "$NOW_LATEST" = "$VERSION" ] || {
+  echo "PUBLISHED, but latest is $NOW_LATEST, not $VERSION. Repair it deliberately:" >&2
+  echo "  npm dist-tag add bookstack-mcp-server@<correct-version> latest" >&2
+  exit 1
+}
+echo "published $VERSION; latest -> $NOW_LATEST"
 ```
 
 **Fully qualified refs, and a fresh directory — both are load-bearing:**
