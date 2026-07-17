@@ -5,6 +5,13 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1](https://github.com/pnocera/bookstack-mcp-server/compare/v2.0.0...v2.0.1) (2026-07-17)
+
+
+### Fixed
+
+* **release:** stop failing the workflow on a direct push to main ([6afe258](https://github.com/pnocera/bookstack-mcp-server/commit/6afe2580f715562ac141e9f67b7cc856fb8db617))
+
 ## [2.0.0](https://github.com/pnocera/bookstack-mcp-server/releases/tag/v2.0.0) (2026-07-17)
 
 ### ⚠ BREAKING CHANGES
