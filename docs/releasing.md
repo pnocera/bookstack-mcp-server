@@ -25,54 +25,56 @@ Both stages live in `.github/workflows/release-please.yml`.
 
 ---
 
-## Before you enable publishing
+## Publishing is enabled
 
-Four prerequisites. **All four are outside this repository and require an
-owner/admin** — merging these files implements none of them. Until the npm trusted
-publisher (#4) exists, nothing here can publish at all, which is what makes merging
-the automation itself safe. Do them **in this order**.
+All four prerequisites are done (2026-07-17). They are recorded here because none
+of them lives in this repository — a future reader cannot see them in the diff,
+and #1 was a deliberate *decision*, not an oversight.
 
-### 1. Protect `main` — do this FIRST
+| # | What | State |
+| --- | --- | --- |
+| 1 | `main` ruleset | **`non_fast_forward` only — deliberately.** See below. |
+| 2 | `npm-publish` environment, `main`-only | applied |
+| 3 | Actions may create PRs | enabled |
+| 4 | npm trusted publisher, env-bound | configured: `release-please.yml` + `npm-publish` + `npm publish` |
 
-Without it, the human gate is a *claim*, not a control. Anyone who can push to
-`main` can push a commit that edits `.github/workflows/release-please.yml` to
-publish immediately. That copy still carries the trusted workflow filename and can
-request `id-token: write`, so **npm accepts it — with nothing merged**.
+### 1. `main` ruleset — `non_fast_forward` only, on purpose
 
-`non_fast_forward` alone does **not** close this: it blocks *force* pushes, not
-ordinary direct pushes. The **`pull_request` rule** is the one that requires
-changes to arrive via a merged PR.
+The full ruleset (`pull_request` + strict `required_status_checks` +
+`non_fast_forward`) exists to make "nothing publishes without a merge" a control
+rather than a claim: it stops someone who can push to `main` from pushing a
+modified `release-please.yml` that publishes immediately.
+
+**That threat does not apply here.** Only the repository owner can push to `main`,
+and the owner can already publish — they own the npm package. The rule would be
+protecting them from themselves. The case that *does* matter, a **branch** copy of
+the workflow minting the same OIDC identity, is closed by #2 regardless of who can
+push, because npm requires the `npm-publish` environment claim and GitHub grants
+that environment only to `main`.
+
+So only `non_fast_forward` is applied:
 
 ```bash
 gh api repos/pnocera/bookstack-mcp-server/rulesets --method POST --input - <<'JSON'
 { "name": "main", "target": "branch", "enforcement": "active",
   "conditions": { "ref_name": { "include": ["refs/heads/main"], "exclude": [] } },
-  "rules": [
-    { "type": "pull_request",
-      "parameters": { "required_approving_review_count": 0,
-                      "dismiss_stale_reviews_on_push": false,
-                      "require_code_owner_review": false,
-                      "require_last_push_approval": false,
-                      "required_review_thread_resolution": false } },
-    { "type": "required_status_checks",
-      "parameters": { "strict_required_status_checks_policy": true,
-        "required_status_checks": [ { "context": "Typecheck, test, lint" },
-                                    { "context": "Docker build and smoke" } ] } },
-    { "type": "non_fast_forward" }
-  ] }
+  "rules": [ { "type": "non_fast_forward" } ] }
 JSON
 ```
 
-| Rule | Why it is not optional |
+It costs nothing (ordinary pushes still work) and protects the history
+release-please's state machine reads from a force-push.
+
+**What you are accepting by omitting the other two:**
+
+| Omitted rule | What it would have caught |
 | --- | --- |
-| `pull_request` | Makes "nothing publishes without a merge" **true** rather than asserted. |
-| `strict_required_status_checks_policy: true` | The PR must be up to date with `main`. Also closes a real race: a stale Release PR can otherwise absorb a later feature through `main` while keeping the earlier version and notes — so that feature never appears in **any** release's semver or changelog. |
-| `non_fast_forward` | No force pushes, which would corrupt the history release-please's state machine reads. |
+| `pull_request` | A direct push to `main` that publishes without a merge. Moot while only the owner can push — and it is the rule that would stop you pushing to `main` at all. |
+| `strict_required_status_checks` | Merging a Release PR that is **behind** `main`. Still reachable solo: merge a `feat:` PR, then merge a Release PR release-please has not rebuilt yet, and that feature ships under the earlier version, absent from **every** changelog, and never reappears once the manifest advances past it. **Mitigation: let release-please refresh its PR before merging it — check the PR's head is current with `main`.** |
 
-Ensure no bypass actor can push the publishing workflow directly.
-
-**This does not stop a branch from publishing** — see #2. Protecting `main` only
-makes the *merge* real.
+If collaborators with push access ever arrive, apply the full ruleset from the
+git history of this file (see the commit that narrowed it) **before** granting
+that access.
 
 ### 2. Create the `npm-publish` environment — this is the actual boundary
 
@@ -134,8 +136,9 @@ human abort window after the Release PR merges, which nothing else here provides
 *Settings → Actions → General → Workflow permissions →*
 **"Allow GitHub Actions to create and approve pull requests"**
 
-Currently **disabled**. Without it release-please cannot open the Release PR at
-all.
+Enabled 2026-07-17. Without it release-please cannot open the Release PR at all —
+the run fails with "GitHub Actions is not permitted to create or approve pull
+requests", which is what the first attempt did.
 
 > ⚠️ **This does not make the Release PR's checks run.** Workflow runs triggered by
 > a `GITHUB_TOKEN`-created or `GITHUB_TOKEN`-updated PR start in an
@@ -177,9 +180,12 @@ all.
 
 ---
 
-## One-time: the first Release PR (2.0.0)
+## One-time: the first Release PR (2.0.0) — DONE 2026-07-17
 
-**Applies once. Read it before merging that PR.**
+**This has happened.** 2.0.0 is published; `[Unreleased]` is empty and the
+generated notes are what a normal release wants, so none of this applies again.
+Kept as the record of why the 2.0.0 section looks hand-written, and as the
+procedure if a future release ever needs curated notes.
 
 release-please generates a short 2.0.0 section from commit subjects and inserts it
 **above the first version-like heading**. It does **not** consume or rename
