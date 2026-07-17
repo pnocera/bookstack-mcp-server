@@ -49,23 +49,33 @@ on:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # GROOM: maintain the standing Release PR. Never creates a release.
+  # RELEASE STATE: the one place release-please state is mutated. Serialized.
   # ---------------------------------------------------------------------------
-  groom:
-    name: Maintain release PR
+  release:
+    name: Create release
     runs-on: ubuntu-latest
-    # ONE SHARED GROUP, and eviction is exactly what we want here. release-please
-    # computes the version and notes by scanning main, and only later force-writes
-    # the bot branch. Let two SHAs do that concurrently and the SLOWER, STALER run
-    # can land last: a Release PR whose code is current with main (so a strict
-    # status check sees nothing wrong) but whose version and notes predate the
-    # feature that merged in between. That feature then ships under the wrong
-    # semver, absent from the changelog, and once the manifest advances past it it
-    # never reappears. Serialised, the newest run recalculates from the latest main
-    # and is the final writer. Losing a PENDING groom run costs nothing — the run
-    # that replaces it grooms with fresher data.
+    # ONE GROUP, `queue: max`, and the two release-please calls kept IN ORDER
+    # inside this job. All three properties are load-bearing:
+    #
+    #  * ONE GROUP — release creation and PR grooming both mutate the same
+    #    `autorelease:*` labels and bot branch. `createPullRequests()` computes its
+    #    whole candidate against the tags visible AT THAT MOMENT and only afterwards
+    #    checks for a still-pending merged PR, bailing out only if it finds one. Run
+    #    it beside release creation and this happens: groom scans before the tag
+    #    exists; release creates the tag and flips pending -> tagged; groom's later
+    #    check now finds nothing pending and writes the candidate it computed before
+    #    the release — a plausible, green, WRONG standing Release PR. Splitting these
+    #    into separate jobs (an earlier revision of this file) is what allowed that.
+    #  * IN ORDER, release before groom — that is precisely the ordering the action
+    #    performs in a single invocation, and the reason it is safe.
+    #  * queue: max — the default (`single`) keeps only ONE pending run per group
+    #    and a newer push CANCELS AND REPLACES it. Since only this Release PR's own
+    #    run may release it (see the gate), evicting that run means it is never
+    #    released at all. `max` queues up to 100 instead of evicting. It may not be
+    #    combined with `cancel-in-progress: true` — GitHub rejects the workflow.
     concurrency:
-      group: release-groom-${{ github.ref }}
+      group: release-state-${{ github.ref }}
+      queue: max
       cancel-in-progress: false
     permissions:
       contents: write
@@ -74,38 +84,6 @@ jobs:
       # LABELS and PR comments, which are issue-scoped in the GitHub API. Without
       # this the action cannot label the PR it just opened, and the release never
       # becomes eligible.
-      issues: write
-    steps:
-      # Pinned to a reviewed commit, not a moving major tag: this action mints
-      # tags and GitHub Releases, so "whatever v4 points at that day" is not a
-      # supply chain worth having. This SHA is v4.4.1, which bundles
-      # release-please 17.3.0 — the version the bootstrap was validated against
-      # (verified via the GitHub API, not assumed: an earlier revision of this
-      # file pinned a02a34c and called it v4.4.1; it is v4.2.0/16.18.0).
-      - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4.4.1
-        with:
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
-          token: ${{ secrets.GITHUB_TOKEN }}
-          skip-github-release: true
-
-  # ---------------------------------------------------------------------------
-  # RELEASE: only the pending Release PR's OWN merge may mint a tag + Release.
-  # ---------------------------------------------------------------------------
-  release:
-    name: Create release
-    runs-on: ubuntu-latest
-    # PER-SHA, and for the opposite reason to `groom`. This run is not
-    # interchangeable with a later one: it is the only run permitted to release
-    # THIS Release PR. In a shared group a newer push would evict it while it is
-    # pending, and no later run would take its place — the merged Release PR would
-    # simply never be released.
-    concurrency:
-      group: release-create-${{ github.sha }}
-      cancel-in-progress: false
-    permissions:
-      contents: write
-      pull-requests: write
       issues: write
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
@@ -154,9 +132,18 @@ jobs:
           # which a concurrent run may already have flipped to `tagged`.
           read -r HEAD_REF LABELS < <(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}" \
             --jq '"\(.head.ref) \([.labels[].name] | join(","))"')
+          # release-please's OWN branch shapes, not a `release-please--*` glob. It
+          # builds either `release-please--branches--<target>` (this config: one
+          # package at the root, no component) or
+          # `release-please--branches--<target>--components--<component>`. A glob
+          # would also claim an ordinary human branch like
+          # `release-please--documentation` and then hard-fail its post-merge run
+          # for carrying no autorelease label; matching only the exact no-component
+          # branch would silently stop releasing if a component is ever configured.
           case "$HEAD_REF" in
-            release-please--*) IS_RELEASE_PR=true ;;
-            *)                 IS_RELEASE_PR=false ;;
+            "release-please--branches--${GITHUB_REF_NAME}") IS_RELEASE_PR=true ;;
+            "release-please--branches--${GITHUB_REF_NAME}--components--"*) IS_RELEASE_PR=true ;;
+            *) IS_RELEASE_PR=false ;;
           esac
 
           if [ "$IS_RELEASE_PR" = "false" ]; then
@@ -176,9 +163,14 @@ jobs:
               exit 1 ;;
           esac
 
-      # skip-github-pull-request: this job must never touch the Release PR —
-      # `groom` owns that, under a different concurrency group. Splitting the two
-      # is what lets each have the queueing behaviour it needs.
+      # STEP 1 of the state machine: create the release, and nothing else.
+      #
+      # Pinned to a reviewed commit, not a moving major tag: this action mints tags
+      # and GitHub Releases, so "whatever v4 points at that day" is not a supply
+      # chain worth having. This SHA is v4.4.1, which bundles release-please 17.3.0
+      # — the version the bootstrap was validated against (verified via the GitHub
+      # API, not assumed: an earlier revision pinned a02a34c and called it v4.4.1;
+      # it is v4.2.0/16.18.0).
       #
       # skip-github-release takes ONLY "true"/"false" (empty => unset => release
       # creation ON), which is why classify always writes one of those two.
@@ -191,6 +183,38 @@ jobs:
           skip-github-pull-request: true
           skip-github-release: ${{ steps.classify.outputs.skip }}
 
+      # "The action succeeded" does NOT mean "the release happened". A Release PR
+      # with a damaged title, unparseable body or unrecognised branch makes
+      # buildRelease() return undefined; buildReleases() turns that into an empty
+      # list; the action then exits 0 WITHOUT setting release_created. `publish`
+      # would read that as "nothing to do" and skip, leaving the whole run green
+      # with no tag, no Release and no npm version — and no later run may release
+      # this PR. That is not hypothetical: the one-time 2.0.0 procedure has a human
+      # hand-editing that PR body around release-please's parseable structure.
+      # Nothing is irreversible yet, so fail loudly and let the operator repair the
+      # PR and re-run.
+      - name: A release was expected — assert one happened
+        if: ${{ steps.classify.outputs.skip == 'false' }}
+        env:
+          CREATED: ${{ steps.release.outputs.release_created }}
+          TAG: ${{ steps.release.outputs.tag_name }}
+          PR: ${{ steps.release.outputs.prNumber }}
+        run: |
+          if [ "$CREATED" != "true" ] || [ -z "$TAG" ] || [ -z "$PR" ]; then
+            echo "::error::This run was the pending Release PR's merge, but release-please created no release (release_created='${CREATED}', tag_name='${TAG}', prNumber='${PR}'). Its title/body most likely no longer parse. No tag exists, so nothing is lost: repair the merged Release PR and re-run this run." >&2
+            exit 1
+          fi
+          echo "release ${TAG} created from PR #${PR}"
+
+      # STEP 2: groom the standing Release PR — AFTER any release above, never
+      # beside it. Same job, so the ordering is guaranteed rather than hoped for.
+      - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4.4.1
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          token: ${{ secrets.GITHUB_TOKEN }}
+          skip-github-release: true
+
   publish:
     name: Publish to npm
     needs: release
@@ -198,6 +222,18 @@ jobs:
     # Release PR on main. No manual input, no other ref.
     if: ${{ needs.release.outputs.release_created == 'true' }}
     runs-on: ubuntu-latest
+    # Serialize registry writes. Every bare `npm publish` also MOVES the shared
+    # `latest` dist-tag to the version it publishes — and dist-tags are mutable
+    # even though versions are not. Two releases merged close together (or, with a
+    # required reviewer on the environment, approved out of order) can otherwise
+    # overlap: 2.1.0 lands first, slower 2.0.0 lands second, both commands succeed,
+    # both GitHub Releases are green — and `npm install` now resolves to 2.0.0.
+    # None of the tag/package/PR equality checks sees it, because each publish is
+    # internally consistent. queue: max so a waiting publish is never evicted.
+    concurrency:
+      group: npm-publish
+      queue: max
+      cancel-in-progress: false
     # THE boundary — the only control here a branch copy of this file cannot
     # delete. Its deployment-branch policy is enforced by GitHub (a run on any
     # other ref is refused the environment, so no OIDC token), and npm's trusted
@@ -321,9 +357,37 @@ jobs:
           npm install -g npm@11.6.2
           npm --version
 
-      # No "does npm already have it?" pre-check: npm versions are immutable, so
-      # the registry rejects a duplicate loudly and correctly. A pre-check here
-      # could only turn that clear failure into a silent skip — and an earlier
-      # revision's version of it collapsed network and auth errors into "absent".
+      # The concurrency group above orders the JOBS; this orders the OUTCOME.
+      # GitHub's queue is FIFO by when a job started waiting, which is not
+      # necessarily release order — and a required reviewer can approve a later
+      # release first. So check the actual downstream postcondition: never move
+      # `latest` backwards. Fail closed and let a human decide (a genuine backfill
+      # should publish under an explicit --tag, not silently steal `latest`).
+      #
+      # This is NOT a "does npm already have it?" pre-check — that idea was
+      # rejected twice: duplicates must stay a loud npm rejection, and an earlier
+      # revision's version of it collapsed network/auth errors into "absent". Here
+      # E404 means an empty registry (fine, publish), and any OTHER failure aborts.
+      - name: Refuse to move `latest` backwards
+        env:
+          VERSION: ${{ needs.release.outputs.tag_name }}
+        run: |
+          V="${VERSION#v}"
+          ERR="$(mktemp)"
+          if LATEST="$(npm view bookstack-mcp-server version --registry=https://registry.npmjs.org 2>"$ERR")"; then
+            NEWEST="$(printf '%s\n%s\n' "$LATEST" "$V" | sort -V | tail -1)"
+            if [ "$NEWEST" = "$LATEST" ] && [ "$LATEST" != "$V" ]; then
+              echo "::error::npm latest is ${LATEST}, newer than ${V}. Publishing would move \`latest\` backwards and npm install would resolve to the older release. If ${V} is a deliberate backfill, publish it by hand with an explicit --tag." >&2
+              exit 1
+            fi
+            echo "npm latest is ${LATEST}; publishing ${V} moves it forward"
+          elif grep -q E404 "$ERR"; then
+            echo "no published versions yet; ${V} will be the first"
+          else
+            echo "::error::Could not read the registry; refusing to publish blind." >&2
+            cat "$ERR" >&2
+            exit 1
+          fi
+
       - name: Publish
-        run: npm publish --provenance --access public
+        run: npm publish --provenance --access public --registry=https://registry.npmjs.org

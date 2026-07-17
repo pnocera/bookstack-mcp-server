@@ -106,6 +106,13 @@ Then name it on the trusted publisher (#4). The two halves lock together:
 Optionally add a required reviewer to the environment — that also gives you a
 human abort window after the Release PR merges, which nothing else here provides.
 
+> ⚠️ **If you add a reviewer, approve deployments in release order.** Every plain
+> `npm publish` also moves the mutable `latest` dist-tag to whatever it publishes.
+> Approve `2.1.0` before a still-waiting `2.0.0` and both succeed, both Releases go
+> green — and `npm install` then resolves to **2.0.0**. The workflow refuses to move
+> `latest` backwards and will fail that older publish rather than do it silently, so
+> a genuine backfill has to be published by hand under an explicit `--tag`.
+
 > **Tag protection is *not* on this list, deliberately.** `main`'s ruleset does not
 > cover tags, and a pre-placed `refs/tags/v*` is a real nuisance: release-please
 > does not reject an existing tag, and GitHub's Create Release **ignores
@@ -280,9 +287,11 @@ executes. **Never "Re-run all jobs"** — `release_created` is only true in the 
 that *creates* the Release, so a full re-run finds nothing pending, **skips publish
 and passes green** while npm stays behind.
 
-**If the `Create release` job failed at the classifier** — before any tag exists,
-e.g. it could not resolve the merged PR for this commit, or found a Release PR
-carrying no `autorelease` label. This is the one case where the rule above inverts:
+**If the `Create release` job failed before any tag exists** — the classifier could
+not resolve the merged PR for this commit, found a Release PR carrying no
+`autorelease` label, or release-please returned **no release when one was
+expected** (its title/body no longer parse — most likely after the one-time 2.0.0
+hand-edit). This is the one case where the rule above inverts:
 
 ```bash
 gh run rerun <RUN_ID>                # re-run ALL jobs — nothing irreversible happened
