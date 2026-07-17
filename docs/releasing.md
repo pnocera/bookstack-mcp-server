@@ -558,15 +558,32 @@ fi
 read -r -p "Read that. Is any other release in flight right now? Type 'no' to continue: " CLEAR
 [ "$CLEAR" = "no" ] || { echo "aborted" >&2; exit 1; }
 
-# publishConfig.tag would silently set the tag and, like an explicit --tag, take
-# npm's own protection out of the path below.
-node -e 'if (require("./package.json").publishConfig?.tag) { console.error("package.json sets publishConfig.tag; it would override the default tag"); process.exit(1); }'
+# ARM npm's own protection — a bare command is NOT enough to prove it is armed.
+# npm 11.6.2 runs its refusal-to-demote-`latest` check only when
+#   isDefaultTag = config.isDefault('tag') && !manifest.publishConfig?.tag
+# is true and `force` is false. So all three of these disable it silently:
+#
+#   * publishConfig.tag in package.json;
+#   * a `tag=latest` in ANY .npmrc or NPM_CONFIG_TAG — `npm config get tag` then
+#     prints "latest" exactly as it does by default, but it is no longer npm's
+#     DEFAULT, so the check is skipped. Only the short `npm config list`, which
+#     prints solely what has been explicitly set, can tell them apart;
+#   * force=true, which skips the check outright.
+node -e 'if (require("./package.json").publishConfig?.tag) { console.error("package.json sets publishConfig.tag"); process.exit(1); }'
+! npm config list | grep -qE '^tag *=' || {
+  echo "a tag is configured (.npmrc or NPM_CONFIG_TAG). It reads the same as npm's" >&2
+  echo "default but disables npm's greater-version protection. Unset it and re-run." >&2; exit 1; }
+[ "$(npm config get force)" = "false" ] || {
+  echo "force is enabled; npm would skip its greater-version check. Unset it." >&2; exit 1; }
 
-# BARE publish, deliberately. The IMPLICIT default tag is what arms npm 11.6.2's
-# refusal to move `latest` below the highest published stable version — passing
-# `--tag latest` explicitly DISABLES that very check. npm enforces this atomically
-# at the registry, which no amount of read-then-write shell can match. That is why
-# the pin above is load-bearing rather than tidiness.
+# Bare, deliberately: the IMPLICIT default tag is what arms that check. Passing
+# `--tag latest` explicitly disables the very thing the pin above exists for.
+#
+# This NARROWS the race; it does not close it. npm reads the packument
+# client-side, evaluates, and publishes afterwards, so another publisher can land
+# in between — and npm's read helper turns a failed packument read into an EMPTY
+# version set, i.e. "nothing newer exists". That is why the in-flight confirmation
+# above is load-bearing rather than ceremony, and why the check below is by eye.
 npm publish --access public --registry="$REG"
 
 # A DELIBERATE backfill — an older version published after a newer one — instead:
