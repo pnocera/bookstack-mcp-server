@@ -98,23 +98,18 @@ afterAll(() => {
     }
   }
 
-  // The singleton must not still be holding the fixture. Probing it means
-  // constructing it, so the `finally` drops it again — otherwise this check would
-  // undo the very reset it is verifying and hand the next file a cached snapshot.
-  try {
-    const leaked = ConfigManager.getInstance().getConfig().bookstack;
-    if (leaked.apiToken === 'id:secret' || leaked.baseUrl.includes('127.0.0.1')) {
-      throw new Error(`version-propagation leaked its fixture config: ${leaked.baseUrl}`);
-    }
-  } catch (error) {
-    // ONLY ConfigManager's own validation refusal is the honest outcome (the
-    // inherited env need not be loadable alone). A blanket catch would accept a
-    // TypeError — or any unrelated failure — as proof the state was clean, which is
-    // the same "green for the wrong reason" this postcondition exists to prevent.
-    const message = error instanceof Error ? error.message : String(error);
-    if (!message.startsWith('Configuration validation failed:')) throw error;
-  } finally {
-    ConfigManager.resetInstance();
+  // Prove the singleton is GONE, without constructing one to look.
+  //
+  // Two earlier versions of this check were green for the wrong reason. Probing via
+  // getInstance() needs a try/catch, and the catch has to decide from the error
+  // whether the state was clean: first it accepted every exception, then anything
+  // whose message merely started with the right prefix — a TypeError wearing that
+  // text passed. Worse, on a valid environment the probe CONSTRUCTED the instance
+  // it was verifying the absence of, handing the next file the cache this teardown
+  // exists to prevent. Asking whether an instance exists needs no error handling
+  // and no construction, so there is nothing left to misread.
+  if (ConfigManager.hasInstance()) {
+    throw new Error('version-propagation left a ConfigManager singleton for the next file');
   }
 });
 

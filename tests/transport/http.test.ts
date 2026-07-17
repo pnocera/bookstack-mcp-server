@@ -98,11 +98,17 @@ afterAll(() => {
   for (const key of PINNED_ENV) {
     restoreEnv(key);
   }
-  try {
-    ConfigManager.getInstance().reload();
-  } catch {
-    // The restored environment may not validate on its own (e.g. no BOOKSTACK_API_TOKEN
-    // in a plain `bun test`). That is the state we found it in, so leave it there.
+  // NOT `try { reload() } catch {}`. reload() assigns only when loadConfig()
+  // succeeds, so on the ordinary inherited environment — no BOOKSTACK_API_TOKEN —
+  // it throws before assigning and the catch leaves the singleton holding THIS
+  // suite's snapshot: a closed-port BookStack fixture, and whatever version the
+  // identity tests last loaded. The environment and ConfigManager would then
+  // describe different processes, and the next file believes the singleton.
+  // Dropping it makes the next getInstance() revalidate what is really there.
+  ConfigManager.resetInstance();
+
+  if (ConfigManager.hasInstance()) {
+    throw new Error('http transport suite left a ConfigManager singleton for the next file');
   }
 });
 

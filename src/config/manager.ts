@@ -267,6 +267,19 @@ export class ConfigManager {
   }
 
   /**
+   * Whether a singleton is currently cached.
+   *
+   * For tests, so a teardown can PROVE it left no instance behind without calling
+   * getInstance() — which would construct one, and so destroy the very state it is
+   * checking. Probing by construction also forces a try/catch, and a catch that
+   * decides what happened from an error's message text accepts any unrelated
+   * failure wearing the same prefix.
+   */
+  static hasInstance(): boolean {
+    return ConfigManager.instance !== undefined;
+  }
+
+  /**
    * Load and validate configuration from environment variables
    */
   private loadConfig(): Config {
