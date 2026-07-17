@@ -114,54 +114,59 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          PR=""
-          for attempt in 1 2 3 4 5 6; do
-            PR="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" \
-                    --jq "[.[] | select(.merged_at != null and .merge_commit_sha == \"${GITHUB_SHA}\" and .base.ref == \"${GITHUB_REF_NAME}\") | .number] | first // empty")"
-            [ -n "$PR" ] && break
-            echo "attempt ${attempt}: no merged PR for ${GITHUB_SHA} yet; retrying"
-            sleep 10
-          done
-          if [ -z "$PR" ]; then
-            echo "::error::No merged PR found for ${GITHUB_SHA} on ${GITHUB_REF_NAME}. Every push to a protected main arrives via a PR, so this is an unresolved lookup, not an ordinary push. Nothing irreversible has happened — re-run this whole run." >&2
-            exit 1
-          fi
 
-          # Is it a Release PR? Decide on release-please's own branch naming, which
-          # is structural — NOT on the mutable `autorelease: pending` label alone,
-          # which a concurrent run may already have flipped to `tagged`.
-          read -r HEAD_REF LABELS < <(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}" \
-            --jq '"\(.head.ref) \([.labels[].name] | join(","))"')
-          # release-please's OWN branch shapes, not a `release-please--*` glob. It
-          # builds either `release-please--branches--<target>` (this config: one
-          # package at the root, no component) or
-          # `release-please--branches--<target>--components--<component>`. A glob
-          # would also claim an ordinary human branch like
-          # `release-please--documentation` and then hard-fail its post-merge run
-          # for carrying no autorelease label; matching only the exact no-component
-          # branch would silently stop releasing if a component is ever configured.
-          case "$HEAD_REF" in
-            "release-please--branches--${GITHUB_REF_NAME}") IS_RELEASE_PR=true ;;
-            "release-please--branches--${GITHUB_REF_NAME}--components--"*) IS_RELEASE_PR=true ;;
-            *) IS_RELEASE_PR=false ;;
-          esac
-
-          if [ "$IS_RELEASE_PR" = "false" ]; then
+          # Ask "is a Release PR waiting, and is THIS its merge?" — not "which PR
+          # does this commit belong to?".
+          #
+          # The commit->PR direction was wrong twice over. It has a settling delay,
+          # so an empty answer is ambiguous; and an earlier revision resolved that
+          # ambiguity by ERRORING on empty, reasoning that a `pull_request` rule on
+          # main made every push arrive via a PR. That rule was deliberately not
+          # applied here (see docs/releasing.md #1: only the owner can push, and the
+          # owner can already publish), so a direct push to main is ordinary — and
+          # every one of them turned this workflow red. That is what this rewrite
+          # fixes.
+          #
+          # This direction has no such ambiguity: `autorelease: pending` is attached
+          # when release-please CREATES the PR, long before it is merged, so at merge
+          # time it is already there. Empty means "nothing is awaiting release",
+          # which is the plain truth for a direct push AND for an ordinary feature
+          # merge. No retry loop, because there is nothing to wait for.
+          PENDING="$(gh api "repos/${GITHUB_REPOSITORY}/issues?state=closed&labels=autorelease:%20pending&per_page=20" \
+                      --jq '[.[] | select(.pull_request != null) | .number] | first // empty')"
+          if [ -z "$PENDING" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "PR #${PR} (${HEAD_REF}) is not a Release PR — nothing to release here"
+            echo "no Release PR is awaiting release — nothing to release on this push"
             exit 0
           fi
-          case ",${LABELS}," in
-            *",autorelease: pending,"*)
-              echo "skip=false" >> "$GITHUB_OUTPUT"
-              echo "PR #${PR} is the pending Release PR — release creation enabled" ;;
-            *",autorelease: tagged,"*|*",autorelease: published,"*)
-              echo "skip=true" >> "$GITHUB_OUTPUT"
-              echo "PR #${PR} is already released (${LABELS}) — nothing to do" ;;
+
+          read -r MERGED MERGE_SHA HEAD_REF < <(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PENDING}" \
+            --jq '"\(.merged) \(.merge_commit_sha // "-") \(.head.ref)"')
+
+          # Structural check, kept: the label alone would let a human-labelled PR
+          # mint a release. release-please builds either
+          # `release-please--branches--<target>` or that plus
+          # `--components--<component>` — this repo produces the SECOND form, which
+          # is why an exact match on the first would never release anything.
+          case "$HEAD_REF" in
+            "release-please--branches--${GITHUB_REF_NAME}"|"release-please--branches--${GITHUB_REF_NAME}--components--"*) ;;
             *)
-              echo "::error::PR #${PR} looks like a Release PR (${HEAD_REF}) but carries neither autorelease: pending nor a released label (labels: ${LABELS:-<none>}). Refusing to guess." >&2
+              echo "::error::PR #${PENDING} carries autorelease: pending but its branch (${HEAD_REF}) is not one release-please builds. Refusing to release it." >&2
               exit 1 ;;
           esac
+
+          if [ "$MERGED" != "true" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Release PR #${PENDING} is not merged yet — nothing to release on this push"
+          elif [ "$MERGE_SHA" != "$GITHUB_SHA" ]; then
+            # Its own run releases it; this push is a later commit. Skipping here is
+            # what keeps provenance honest — npm stamps GITHUB_SHA, not the checkout.
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Release PR #${PENDING} merged as ${MERGE_SHA}, not this push (${GITHUB_SHA}) — its own run releases it"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "this push IS the merge of pending Release PR #${PENDING} — release creation enabled"
+          fi
 
       # STEP 1 of the state machine: create the release, and nothing else.
       #
