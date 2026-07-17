@@ -575,9 +575,15 @@ node -e 'if (require("./package.json").publishConfig?.tag) { console.error("pack
 # no output, grep matches nothing, and the guard concludes "no configured tag" —
 # proving the opposite of what it was asked, from a command that did not run.
 NPM_CONFIG_DUMP="$(npm config list)"
-! grep -qE '^tag *=' <<<"$NPM_CONFIG_DUMP" || {
+# Bash's own matcher, not grep. `grep -q` exits 1 for "no match" but >1 for
+# MATCHER FAILURE, and `!` collapses both into "no tag configured" — so a broken
+# grep would certify the config clean, which is the same fail-open the assignment
+# above just closed one line earlier. A built-in has no process to fail.
+if [[ $NPM_CONFIG_DUMP =~ (^|$'\n')[[:space:]]*tag[[:space:]]*= ]]; then
   echo "a tag is configured (.npmrc or NPM_CONFIG_TAG). It reads the same as npm's" >&2
-  echo "default but disables npm's greater-version protection. Unset it and re-run." >&2; exit 1; }
+  echo "default but disables npm's greater-version protection. Unset it and re-run." >&2
+  exit 1
+fi
 NPM_FORCE="$(npm config get force)"
 [ "$NPM_FORCE" = "false" ] || {
   echo "force is $NPM_FORCE; npm would skip its greater-version check. Unset it." >&2; exit 1; }
