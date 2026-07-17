@@ -1,6 +1,6 @@
 {
   "name": "bookstack-mcp-server",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "MCP server providing comprehensive access to BookStack knowledge management system",
   "type": "module",
   "main": "src/server.ts",
