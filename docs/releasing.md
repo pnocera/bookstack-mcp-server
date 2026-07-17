@@ -478,19 +478,9 @@ working copy you have been using:
 #!/usr/bin/env bash
 set -euo pipefail
 VERSION=X.Y.Z; TAG="v$VERSION"
-MODE=forward            # `forward` = this is the newest release. `backfill` = an
-                        # older version published AFTER a newer one already exists.
 REPO=https://github.com/pnocera/bookstack-mcp-server.git
 REG=https://registry.npmjs.org
 PKG=bookstack-mcp-server
-
-# Stable X.Y.Z only. Everything below compares versions numerically, which IS a
-# correct SemVer comparison for that domain and nothing else. `sort -V` is not a
-# SemVer comparator — it ranks 2.0.0-rc.1 ABOVE 2.0.0 — and this hand-authored
-# path is exactly where a prerelease could turn up. Refuse rather than mis-rank.
-[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
-  || { echo "$VERSION is not a stable X.Y.Z; publish a prerelease deliberately, by hand" >&2; exit 1; }
-case "$MODE" in forward|backfill) ;; *) echo "MODE must be forward or backfill" >&2; exit 1 ;; esac
 
 DIR="$(mktemp -d)"; mkdir "$DIR/pkg"; cd "$DIR/pkg"
 git init -q
@@ -550,88 +540,52 @@ npm pack --dry-run                 # packed by the same npm that will publish
 read -r -p "Publish $TAG from $HEAD_SHA? Type the version to confirm: " OK
 [ "$OK" = "$VERSION" ] || { echo "aborted" >&2; exit 1; }
 
-# The published version SET, not the `latest` tag. `latest` is mutable and may
-# already be wrong — reading it cannot tell you what the greatest release is.
-# E404 (no package yet) is the only tolerated absence; anything else aborts.
+# From here the script STOPS deciding and starts showing. Everything above is
+# deterministic — the source, the tag, the tarball — and worth automating. Registry
+# policy is not: `latest` is mutable, npm offers no "publish only if the registry
+# still looks like what I just read", and a local shell is not serialized against
+# the workflow's publish job. Three rounds of predicates here were each wrong in a
+# different way; the read/write race cannot be closed by adding a fourth.
 ERR="$(mktemp)"
-if VERSIONS="$(npm view "$PKG" versions --json --registry="$REG" 2>"$ERR")"; then :
-elif grep -q E404 "$ERR"; then VERSIONS='[]'
-else echo "Could not read the registry; refusing to publish blind." >&2; cat "$ERR" >&2; exit 1; fi
-
-# Greatest STABLE published version, compared numerically (see the X.Y.Z guard).
-greatest_stable() {
-  node -e '
-    const vs = [].concat(JSON.parse(process.argv[1]));
-    const stable = vs.filter((v) => /^\d+\.\d+\.\d+$/.test(v));
-    const cmp = (a, b) => { const A = a.split(".").map(Number), B = b.split(".").map(Number);
-      for (let i = 0; i < 3; i++) if (A[i] !== B[i]) return A[i] - B[i]; return 0; };
-    process.stdout.write(stable.sort(cmp).pop() ?? "");
-  ' "$1"
-}
-GREATEST="$(greatest_stable "$VERSIONS")"
-
-if [ "$MODE" = forward ]; then
-  # Forward: nothing published may already be newer. Checked against the version
-  # SET, so a `latest` that is missing or already demoted cannot wave this through.
-  if [ -n "$GREATEST" ] && [ "$(greatest_stable "[\"$GREATEST\",\"$VERSION\"]")" != "$VERSION" ]; then
-    echo "$GREATEST is already published and is newer than $VERSION." >&2
-    echo "This is a backfill, not a forward release. Re-run this script with MODE=backfill." >&2
-    exit 1
-  fi
-  npm publish --access public --registry="$REG" --tag latest
+if STATE="$(npm view "$PKG" versions dist-tags --json --registry="$REG" 2>"$ERR")"; then
+  echo "$STATE"
+elif grep -q E404 "$ERR"; then
+  echo "(nothing published yet)"
 else
-  # Backfill: prove this actually IS one. Without this the mode is a way to
-  # publish the NEWEST version while leaving `latest` behind — the script exits 0,
-  # and `npm install` quietly keeps serving the older release.
-  if [ -z "$GREATEST" ] || [ "$GREATEST" = "$VERSION" ] \
-     || [ "$(greatest_stable "[\"$GREATEST\",\"$VERSION\"]")" = "$VERSION" ]; then
-    echo "Nothing newer than $VERSION is published (greatest: ${GREATEST:-none})." >&2
-    echo "This is a forward release, not a backfill. Re-run with MODE=forward." >&2
-    exit 1
-  fi
-  LATEST_BEFORE="$(npm view "$PKG" dist-tags.latest --registry="$REG")"
-  npm publish --access public --registry="$REG" --tag backfill
+  echo "Could not read the registry; refusing to publish blind." >&2; cat "$ERR" >&2; exit 1
 fi
 
-# POSTCONDITIONS, read back from the registry. A publish that exits 0 proves the
-# version exists and nothing else — and pre/post reads of `latest` alone are
-# self-certifying, because the publish itself makes them agree. So re-read the
-# whole set: a newer version that landed DURING this publish is caught here.
-AFTER="$(npm view "$PKG" versions --json --registry="$REG")"
-node -e 'process.exit([].concat(JSON.parse(process.argv[1])).includes(process.argv[2]) ? 0 : 1)' \
-  "$AFTER" "$VERSION" || { echo "$VERSION is not on the registry" >&2; exit 1; }
+read -r -p "Read that. Is any other release in flight right now? Type 'no' to continue: " CLEAR
+[ "$CLEAR" = "no" ] || { echo "aborted" >&2; exit 1; }
 
-NOW_LATEST="$(npm view "$PKG" dist-tags.latest --registry="$REG")"
-if [ "$MODE" = forward ]; then
-  GREATEST_AFTER="$(greatest_stable "$AFTER")"
-  [ "$GREATEST_AFTER" = "$VERSION" ] || {
-    echo "$GREATEST_AFTER was published while this ran; $VERSION is no longer the newest." >&2
-    echo "latest is $NOW_LATEST. If it is wrong, repair it deliberately:" >&2
-    echo "  npm dist-tag add $PKG@$GREATEST_AFTER latest" >&2
-    exit 1
-  }
-  [ "$NOW_LATEST" = "$VERSION" ] || { echo "published, but latest is $NOW_LATEST" >&2; exit 1; }
-else
-  BACKFILL_TAG="$(npm view "$PKG" dist-tags.backfill --registry="$REG")"
-  [ "$BACKFILL_TAG" = "$VERSION" ] || { echo "backfill tag is $BACKFILL_TAG, not $VERSION" >&2; exit 1; }
+# publishConfig.tag would silently set the tag and, like an explicit --tag, take
+# npm's own protection out of the path below.
+node -e 'if (require("./package.json").publishConfig?.tag) { console.error("package.json sets publishConfig.tag; it would override the default tag"); process.exit(1); }'
 
-  # What must hold: this publish did not take `latest`, and `latest` did not go
-  # backwards. NOT "latest is byte-for-byte what it was" — a forward release may
-  # legitimately land while this runs, and demanding the old value would report a
-  # correct 2.1.0 -> 2.2.0 advance as damage and tell the operator to reset
-  # `latest` to 2.1.0, undoing someone else's release.
-  [ "$NOW_LATEST" != "$VERSION" ] || {
-    echo "the backfill took latest ($VERSION). Repair it:" >&2
-    echo "  npm dist-tag add $PKG@$LATEST_BEFORE latest" >&2
-    exit 1
-  }
-  [ "$(greatest_stable "[\"$LATEST_BEFORE\",\"$NOW_LATEST\"]")" = "$NOW_LATEST" ] || {
-    echo "latest went backwards during this run: $LATEST_BEFORE -> $NOW_LATEST." >&2
-    echo "Investigate before repairing — something else published concurrently." >&2
-    exit 1
-  }
-fi
-echo "published $VERSION (mode=$MODE); latest -> $NOW_LATEST"
+# BARE publish, deliberately. The IMPLICIT default tag is what arms npm 11.6.2's
+# refusal to move `latest` below the highest published stable version — passing
+# `--tag latest` explicitly DISABLES that very check. npm enforces this atomically
+# at the registry, which no amount of read-then-write shell can match. That is why
+# the pin above is load-bearing rather than tidiness.
+npm publish --access public --registry="$REG"
+
+# A DELIBERATE backfill — an older version published after a newer one — instead:
+#   npm publish --access public --registry="$REG" --tag backfill
+# npm would otherwise refuse it, and refusing is right unless you mean it.
+
+# Show the result. Do not certify it: a comparator here would be announcing that
+# mutable external state is safe, having read it a moment ago.
+npm view "$PKG" versions dist-tags --json --registry="$REG"
+# Unquoted heredoc: $VERSION and $PKG must interpolate. Quoted (<<'CHECK') would
+# print the operator a literal "$VERSION" to check against.
+cat >&2 <<CHECK
+
+Confirm by eye, against the output above:
+  * ${VERSION} is present in versions.
+  * dist-tags.latest is the version you intend \`npm install\` to serve.
+If this publish took \`latest\` and should not have, repair it deliberately:
+  npm dist-tag add ${PKG}@<the version users should get> latest
+CHECK
 ```
 
 **Fully qualified refs, and a fresh directory — both are load-bearing:**
