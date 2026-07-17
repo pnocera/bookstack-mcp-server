@@ -45,6 +45,11 @@ const PINNED_ENV = [
   'LOG_FORMAT',
   'RATE_LIMIT_REQUESTS_PER_MINUTE',
   'RATE_LIMIT_BURST_LIMIT',
+  // The identity tests below set and clear this. Without it here,
+  // savedEnv.get('SERVER_VERSION') is always undefined, so restoreEnv() DELETES an
+  // inherited value rather than restoring it — and afterAll, iterating this same
+  // list, cannot put it back either.
+  'SERVER_VERSION',
 ] as const;
 
 const savedEnv = new Map<string, string | undefined>();
