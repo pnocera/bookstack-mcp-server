@@ -277,6 +277,8 @@ Find comprehensive guides in the `docs/` folder:
 - **[Tools Overview](docs/tools-overview.md)** - Every tool explained
 - **[Resources Guide](docs/resources-guide.md)** - Resource access patterns
 - **[Examples & Workflows](docs/examples-and-workflows.md)** - Real-world usage
+- **[Integration Testing](docs/integration-testing.md)** - Running the live suite against a real BookStack
+- **[Releasing](docs/releasing.md)** - How versions are cut and published
 
 ## ⚡ Quick Examples
 

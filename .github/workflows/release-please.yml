@@ -1,0 +1,136 @@
+name: Release
+
+# Release automation, in two stages with a human gate between them.
+#
+#   1. `release-please` watches main and maintains a standing "Release PR" that
+#      bumps package.json and prepends a CHANGELOG entry, derived from
+#      Conventional Commit subjects since the last release. Nothing happens until
+#      a human merges that PR.
+#   2. Merging it creates the tag and the GitHub Release, and THIS SAME RUN then
+#      publishes to npm.
+#
+# The version is derived mechanically: `fix:` -> patch, `feat:` -> minor, `!` or a
+# BREAKING CHANGE footer -> major. A mislabelled commit ships the wrong semver;
+# that is the one thing this pipeline cannot check for you.
+#
+# WHY PUBLISH LIVES HERE rather than in its own `on: release` workflow:
+# events created with the default GITHUB_TOKEN do NOT trigger further workflow
+# runs. A separate publish workflow keyed on `release: published` would never
+# fire, and would fail SILENTLY — release and tag appear, npm never updates.
+# Chaining off this job's own `release_created` output avoids that without a
+# long-lived PAT.
+#
+# WHY THERE IS NO workflow_dispatch RECOVERY INPUT:
+# an earlier revision took a caller-supplied tag and published it if a GitHub
+# Release existed for it. That was a publish-without-merge hole: a Release can be
+# created from any local commit, and `gh workflow run --ref <branch>` runs a
+# BRANCH COPY of this file, so any check written here could simply be deleted by
+# the copy. The npm trusted publisher binds repo + workflow filename, not the ref,
+# so that copy would still mint a valid OIDC token. The only publish path is now a
+# merged Release PR. To retry a failed publish, re-run the FAILED JOB of the
+# original run (`gh run rerun <id> --failed`) — never "re-run all jobs", which
+# would find no pending release, skip publish, and pass green.
+on:
+  push:
+    branches: [main]
+
+# One release PR in flight at a time; never race two runs into the same branch.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: Maintain release PR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      # Required: release-please drives its state machine with `autorelease:*`
+      # LABELS and PR comments, which are issue-scoped in the GitHub API. Without
+      # this the action cannot label the PR it just opened, and the release never
+      # becomes eligible.
+      issues: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      # Pinned to a reviewed commit, not a moving major tag: this action mints
+      # tags and GitHub Releases, so "whatever v4 points at that day" is not a
+      # supply chain worth having. This SHA is v4.4.1, which bundles
+      # release-please 17.3.0 — the version the bootstrap was validated against
+      # (verified via the GitHub API, not assumed: an earlier revision of this
+      # file pinned a02a34c and called it v4.4.1; it is v4.2.0/16.18.0).
+      - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4.4.1
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  publish:
+    name: Publish to npm
+    needs: release-please
+    # The ONLY publish trigger: release-please created a Release from a merged
+    # Release PR on main. No manual input, no other ref.
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Required for npm trusted publishing (OIDC) and --provenance. This is what
+      # lets us publish with NO stored NPM_TOKEN: npm verifies the workflow
+      # identity directly, and the tarball carries a verifiable link back to this
+      # commit and run.
+      id-token: write
+    env:
+      TAG: ${{ needs.release-please.outputs.tag_name }}
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      # The tag and the code must agree. release-please derives both, so a
+      # mismatch means something upstream is wrong — and publishing anyway would
+      # ship a version nobody reviewed under a tag that says otherwise. `npm
+      # publish` uses package.json, NOT the tag, so this is the check that stops
+      # tag v2.0.0 from shipping 2.0.1.
+      - name: Assert the tag matches package.json
+        run: |
+          PKG_VERSION="$(node -p 'require("./package.json").version')"
+          if [ "$TAG" != "v${PKG_VERSION}" ]; then
+            echo "::error::Tag ${TAG} does not match package.json version ${PKG_VERSION}." >&2
+            exit 1
+          fi
+          echo "tag ${TAG} == package.json ${PKG_VERSION}"
+
+      - uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
+        with:
+          bun-version: 1.3.14
+
+      # Bun runs the package and its prepublishOnly typecheck; npm is what
+      # publishes. Both are needed: `npm publish` runs `prepublishOnly`
+      # (`bun run typecheck`), so a release cannot ship source that does not
+      # compile — which matters here because the package ships TypeScript source,
+      # not a bundle.
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: '24.9.0'
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # Trusted publishing needs npm >= 11.5.1; the runner's bundled npm may
+      # predate it. Pinned rather than @latest so the toolchain that publishes is
+      # the one that was reviewed.
+      - name: Pin npm
+        run: |
+          npm install -g npm@11.6.2
+          npm --version
+
+      # No "does npm already have it?" pre-check: npm versions are immutable, so
+      # the registry rejects a duplicate loudly and correctly. A pre-check here
+      # could only turn that clear failure into a silent skip — and an earlier
+      # revision's version of it collapsed network and auth errors into "absent".
+      - name: Publish
+        run: npm publish --provenance --access public

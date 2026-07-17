@@ -226,4 +226,4 @@ and closes a number of correctness and security defects.
 
 [Keep a Changelog]: https://keepachangelog.com/en/1.1.0/
 [Biome]: https://biomejs.dev/
-[Unreleased]: https://github.com/pnocera/bookstack-mcp-server/compare/main...HEAD
+[Unreleased]: https://github.com/pnocera/bookstack-mcp-server/compare/v1.0.0...HEAD

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+
+  "//bootstrap-sha": [
+    "Bounds the FIRST history scan. Without it, release-please walks every commit",
+    "in the repository to compute the next version. ddfbd25 is the parent of the",
+    "feat! Bun migration (4476d87), so the first scan sees exactly one releasable",
+    "commit and proposes 2.0.0 — which is the release that is actually due.",
+    "",
+    "This is a one-shot: once a release exists, release-please reads from its tag",
+    "and ignores this. It is NOT a rewrite of history — 1.0.0 in the manifest is",
+    "the real last released version (npm has 1.0.0; the repo has no tags at all)."
+  ],
+  "bootstrap-sha": "ddfbd255881e219c80e4bcc45ab457083c4a521a",
+
+  "packages": {
+    ".": {
+      "release-type": "node",
+      "package-name": "bookstack-mcp-server",
+      "changelog-path": "CHANGELOG.md",
+
+      "//tags": [
+        "Both flags are required for plain `vX.Y.Z` tags. include-v-in-tag only adds",
+        "the `v`; in manifest mode include-component-in-tag defaults to TRUE, which",
+        "would produce `bookstack-mcp-server-v2.1.0` and a Release PR titled",
+        "'chore(main): release bookstack-mcp-server 2.1.0'. This is a single-package",
+        "repo, so the component prefix carries no information — and every reference",
+        "in CHANGELOG.md and docs/releasing.md assumes vX.Y.Z."
+      ],
+      "include-v-in-tag": true,
+      "include-component-in-tag": false,
+
+      "bump-minor-pre-major": false,
+      "draft": false,
+      "prerelease": false,
+      "changelog-sections": [
+        { "type": "feat", "section": "Added" },
+        { "type": "fix", "section": "Fixed" },
+        { "type": "perf", "section": "Changed" },
+        { "type": "refactor", "section": "Changed" },
+        { "type": "revert", "section": "Fixed" },
+        { "type": "docs", "section": "Documentation", "hidden": false },
+        { "type": "build", "section": "Build & tooling", "hidden": false },
+        { "type": "ci", "section": "Build & tooling", "hidden": false },
+        { "type": "chore", "section": "Build & tooling", "hidden": true },
+        { "type": "test", "section": "Tests", "hidden": true },
+        { "type": "style", "section": "Build & tooling", "hidden": true }
+      ]
+    }
+  }
+}
