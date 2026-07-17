@@ -235,7 +235,7 @@ export function loadHttpTransportConfig(env: EnvSource = process.env): HttpTrans
  * Configuration manager singleton
  */
 export class ConfigManager {
-  private static instance: ConfigManager;
+  private static instance: ConfigManager | undefined;
   private config: Config;
   private logger: Logger;
 
@@ -249,6 +249,21 @@ export class ConfigManager {
       ConfigManager.instance = new ConfigManager();
     }
     return ConfigManager.instance;
+  }
+
+  /**
+   * Drop the singleton so the next getInstance() rebuilds from the current environment.
+   *
+   * For tests, and load-bearing there. `reload()` assigns only after loadConfig()
+   * SUCCEEDS, so a suite that restores an environment the config cannot validate -
+   * the normal case: no BOOKSTACK_API_TOKEN outside a fixture - is left holding the
+   * previous test's configuration. bun runs every test file in one process against
+   * this singleton, so the next file can then read a credential that is not in its
+   * environment, or find a stub base URL whose server has already stopped. Resetting
+   * makes the next getInstance() revalidate and fail honestly instead.
+   */
+  static resetInstance(): void {
+    ConfigManager.instance = undefined;
   }
 
   /**

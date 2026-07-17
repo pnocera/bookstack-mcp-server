@@ -16,6 +16,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import pkg from '../../package.json' with { type: 'json' };
 import {
   type Config,
   ConfigManager,
@@ -295,6 +296,33 @@ describe('GET / identity', () => {
     expect(body.version).toBe('9.8.7-sentinel');
 
     restoreEnv('SERVER_VERSION');
+    config = ConfigManager.getInstance().reload();
+  });
+
+  /**
+   * The path a RELEASE takes. The test above only proves this route can read the
+   * override; the sentinel arrives through the very branch a default-only-stale bug
+   * keeps working. `.env.example` and the runbook tell operators to leave
+   * SERVER_VERSION unset, so THIS is the branch the published artifact runs —
+   * demonstrated, not theorised: routing just the two reads in src/server.ts through
+   * such a branch left the whole suite green.
+   *
+   * Coincidence-bound while package.json says 1.0.0; decisive the moment
+   * release-please writes 2.0.0, which is the release this must not get wrong.
+   */
+  it('reports the package version when SERVER_VERSION is unset', async () => {
+    restoreEnv('SERVER_VERSION');
+    delete process.env.SERVER_VERSION;
+    const appConfig = ConfigManager.getInstance().reload();
+    const { url } = await startApp(
+      { bodyLimitBytes: DEFAULT_HTTP_BODY_LIMIT_BYTES, authToken: TEST_AUTH_TOKEN },
+      appConfig
+    );
+
+    const body = (await (await fetch(`${url}/`)).json()) as { version?: string };
+
+    expect(body.version).toBe(pkg.version);
+
     config = ConfigManager.getInstance().reload();
   });
 });

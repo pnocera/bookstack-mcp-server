@@ -58,15 +58,14 @@ function restoreEnv(): void {
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;
   }
-  try {
-    ConfigManager.getInstance().reload();
-  } catch {
-    // Best-effort: the environment this file INHERITED may not be loadable on its
-    // own (run this file alone and there is no BOOKSTACK_API_TOKEN at all). The
-    // restore above is the part that matters — reloading merely avoids handing the
-    // next file a singleton built from our stub. Rethrowing here would fail a
-    // passing test in teardown over a condition it did not create.
-  }
+  // NOT `try { reload() } catch {}`. reload() assigns only when loadConfig()
+  // succeeds, so when the restored environment does not validate — the normal case
+  // here, since the inherited env has no BOOKSTACK_API_TOKEN — the catch leaves the
+  // singleton holding THIS file's stub credential and base URL. The next file in
+  // the process then reads a credential its environment never had, pointed at a
+  // stub that has stopped. Dropping it makes the next getInstance() revalidate
+  // whatever environment is really there.
+  ConfigManager.resetInstance();
 }
 
 /**
@@ -82,7 +81,36 @@ beforeEach(() => {
 });
 
 afterEach(restoreEnv);
-afterAll(restoreEnv);
+
+/**
+ * Prove the teardown, rather than trusting it. A green run says nothing about what
+ * this file left behind for the next one — which is exactly how the leak it is
+ * guarding against went unnoticed.
+ */
+afterAll(() => {
+  restoreEnv();
+
+  for (const [key, value] of savedEnv) {
+    if (process.env[key] !== value) {
+      throw new Error(
+        `version-propagation leaked ${key}: expected ${String(value)}, found ${String(process.env[key])}`
+      );
+    }
+  }
+
+  // The singleton must not still be holding the fixture. Either it revalidates the
+  // restored environment (and may honestly refuse it), or it carries no stub value.
+  try {
+    const leaked = ConfigManager.getInstance().getConfig().bookstack;
+    if (leaked.apiToken === 'id:secret' || leaked.baseUrl.includes('127.0.0.1')) {
+      throw new Error(`version-propagation leaked its fixture config: ${leaked.baseUrl}`);
+    }
+  } catch (error) {
+    // A refusal here is the honest outcome when the inherited environment is not
+    // loadable on its own; only a leaked fixture is a failure.
+    if (error instanceof Error && error.message.startsWith('version-propagation')) throw error;
+  }
+});
 
 async function serverInfo(): Promise<MCPServerInfo> {
   const tools = new ServerInfoTools(
