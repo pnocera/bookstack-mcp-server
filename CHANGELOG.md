@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0](https://github.com/pnocera/bookstack-mcp-server/compare/v1.0.0...v2.0.0) (2026-07-17)
+
+
+### ⚠ BREAKING CHANGES
+
+* migrate to Bun, fix upload/auth/logging defects, add live test suite
+
+### Added
+
+* migrate to Bun, fix upload/auth/logging defects, add live test suite ([4476d87](https://github.com/pnocera/bookstack-mcp-server/commit/4476d8786e8e5b71085cea644b051d3d966bf0f3))
+* **release:** automate versioning and publishing with release-please + OIDC ([a4a3ca3](https://github.com/pnocera/bookstack-mcp-server/commit/a4a3ca3ee26f70f6d64b3fb55319ac639368b422))
+
 ## [Unreleased]
 
 This release modernizes the toolchain around **Bun**, drops the Node.js runtime,
