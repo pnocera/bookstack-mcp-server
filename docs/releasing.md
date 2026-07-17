@@ -248,12 +248,25 @@ token that would let a branch copy publish.
 > returns no releases and **succeeds**. `release_created` is then unset, so
 > `publish` is skipped and the workflow **passes green** — with npm still behind.
 >
-> After any post-tag failure, the run's colour tells you nothing. Check the
-> registry for the exact version:
+> After any post-tag failure, the run's colour tells you nothing. Ask the registry
+> about the exact version — and note that **`npm view` exits non-zero for reasons
+> other than "absent"**, so a bare exit code is not an answer:
 >
 > ```bash
-> npm view bookstack-mcp-server@X.Y.Z version   # non-zero/E404 => not published
+> ERR=$(mktemp)
+> if npm view bookstack-mcp-server@X.Y.Z version \
+>      --registry=https://registry.npmjs.org >/dev/null 2>"$ERR"; then
+>   echo "PUBLISHED — nothing to recover"
+> elif grep -q E404 "$ERR"; then
+>   echo "ABSENT — recover with one of the options below"
+> else
+>   echo "CANNOT TELL — investigate; do NOT publish"; cat "$ERR"   # ECONNREFUSED, auth, proxy, TLS...
+> fi
 > ```
+>
+> Pin `--registry` explicitly. `--access public` sets *visibility*, it does not
+> select npmjs — if your npm config points at a private registry, an unpinned
+> lookup and publish both succeed **there**, leaving public npm untouched.
 
 Recover with one of:
 
@@ -283,26 +296,46 @@ npm pack --dry-run   # exactly what a release would contain
 If the automation is broken and a release is urgent, **still go through a merged
 PR** — that is the gate, and there is no supported way around it:
 
+First, on a branch: bump `package.json` + `.release-please-manifest.json` to the
+**same** version, write the CHANGELOG entry yourself, then open, review and merge
+that PR. Then tag **the commit that PR merged as** — run this as a script, not as
+lines you paste one at a time:
+
 ```bash
-# On a branch: bump package.json + .release-please-manifest.json to the SAME
-# version, and write the CHANGELOG entry yourself.
-git commit -am "chore(main): release X.Y.Z"
-# Open it, review it, merge it. Then tag THAT MERGE COMMIT, explicitly:
-git switch main && git pull --ff-only
-git rev-parse HEAD                       # this is the commit you are releasing — read it
-git tag -a vX.Y.Z -m "vX.Y.Z" <THAT_SHA> # annotated, at an explicit SHA
-git push origin refs/tags/vX.Y.Z         # push the tag itself, by name
-gh release create vX.Y.Z --verify-tag --generate-notes
+#!/usr/bin/env bash
+set -euo pipefail                    # every guard below only aborts because of this
+PR=<pr-number>; VERSION=X.Y.Z; TAG="v$VERSION"; REPO=pnocera/bookstack-mcp-server
+
+# The release target is the REVIEWED PR's merge commit — never "whatever main
+# points at now". If anything merged after it, main has already moved on.
+SHA="$(gh pr view "$PR" --repo "$REPO" --json state,mergeCommit \
+        --jq 'select(.state=="MERGED") | .mergeCommit.oid')"
+[ -n "$SHA" ] || { echo "PR $PR is not merged — nothing to release" >&2; exit 1; }
+
+git fetch origin main
+git merge-base --is-ancestor "$SHA" origin/main \
+  || { echo "$SHA is not on main" >&2; exit 1; }
+
+# The commit must already carry the version it is about to claim.
+AT="$(git show "$SHA:package.json" | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')"
+[ "$AT" = "$VERSION" ] || { echo "package.json at $SHA is $AT, not $VERSION" >&2; exit 1; }
+
+echo "releasing $SHA as $TAG"
+git tag -a "$TAG" -m "$TAG" "$SHA"     # annotated, at an explicit SHA
+git push origin "refs/tags/$TAG"       # push the tag itself, by name
+gh release create "$TAG" --repo "$REPO" --verify-tag --generate-notes
 ```
 
-Every part of that is load-bearing, because the obvious version of it fails
-**silently**:
+Every line of that is load-bearing, because the obvious version of each one fails
+**silently** — all of these exit 0:
 
 | Instead of | Because |
 | --- | --- |
 | `git tag vX.Y.Z` | Creates a *lightweight* tag, which `git push --follow-tags` **does not push** — it carries only *annotated* tags. The push still exits 0. |
 | `git push --follow-tags` | Pushes tags only alongside refs it is actually updating, and only annotated ones. Push the tag by name and it always goes. |
-| `gh release create` bare | If the remote tag is missing, gh **creates one from the latest state of the default branch** and succeeds — so the Release can point at a different commit than the tag you made. `--verify-tag` aborts instead. |
+| `gh release create` bare | If the remote tag is missing, gh **creates one from the latest state of the default branch** and succeeds — so the Release can point at a commit you never chose. `--verify-tag` aborts instead. (It verifies the tag *exists*, not where it points — that is what the SHA guards above are for.) |
+| `git switch main && git rev-parse HEAD` | Tags whatever is on `main` *now*. A PR that merged after yours rides into this version without ever appearing in its changelog or semver. Ask the PR for its merge SHA. |
+| `guard \|\| echo "stop"` | **`echo` succeeds**, so the guard returns 0 and the next line runs anyway. A printed warning is not control flow; only `exit 1` under `set -e` is. |
 
 Chain those and the tag, the Release and the tarball can each describe a different
 commit, with nothing red anywhere. npm versions are immutable, so that is not
@@ -310,16 +343,34 @@ repairable in place.
 
 Creating the Release does **not** publish (a `GITHUB_TOKEN`-created release
 triggers nothing). To publish it you must fix the automation, or publish locally
-and accept no provenance. Publish **from the tag**, never from whatever your
-checkout happens to be:
+and accept no provenance. Publish from a **fresh clone of the tag** — never from a
+working copy you have been using:
 
 ```bash
-git fetch origin tag vX.Y.Z --no-tags   # get the reviewed tag itself
-git checkout --detach refs/tags/vX.Y.Z  # detached: publish exactly what was tagged
-test "v$(node -p 'require("./package.json").version')" = vX.Y.Z || echo "MISMATCH — stop"
+#!/usr/bin/env bash
+set -euo pipefail
+VERSION=X.Y.Z; TAG="v$VERSION"; REPO=https://github.com/pnocera/bookstack-mcp-server.git
+
+DIR="$(mktemp -d)"
+git clone --depth 1 --branch "$TAG" "$REPO" "$DIR/pkg"   # detached at the tag, clean by construction
+cd "$DIR/pkg"
+
+AT="$(node -p 'require("./package.json").version')"
+[ "v$AT" = "$TAG" ] || { echo "package.json is $AT, tag says $TAG" >&2; exit 1; }
+[ -z "$(git status --porcelain)" ] || { echo "clone is dirty — stop" >&2; exit 1; }
+
 bun install --frozen-lockfile
-npm publish --access public   # no provenance; last resort, needs local npm auth
+npm pack --dry-run                 # read this: it is exactly what will ship
+npm publish --access public --registry=https://registry.npmjs.org
 ```
+
+**A fresh clone, not `git checkout --detach` in your own tree.** Checking out a tag
+does **not** discard tracked edits or untracked files, and it exits 0 with them
+still present. `package.json#files` ships `src/**`, so a stray untracked file under
+`src/` — or an unrelated `README.md` edit — is packed into an immutable version
+that no longer matches the tag or the Release. `prepublishOnly`'s typecheck does not
+notice: a stray non-TypeScript file still compiles fine. An empty directory cannot
+inherit any of that.
 
 **`npm publish --provenance` cannot work locally.** Provenance requires a
 supported cloud CI runner; an authenticated local shell cannot produce an
