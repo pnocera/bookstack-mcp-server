@@ -27,9 +27,9 @@ Both stages live in `.github/workflows/release-please.yml`.
 
 ## Before you enable publishing
 
-Three prerequisites. **All three are outside this repository and require an
+Four prerequisites. **All four are outside this repository and require an
 owner/admin** — merging these files implements none of them. Until the npm trusted
-publisher (#3) exists, nothing here can publish at all, which is what makes merging
+publisher (#4) exists, nothing here can publish at all, which is what makes merging
 the automation itself safe. Do them **in this order**.
 
 ### 1. Protect `main` — do this FIRST
@@ -77,7 +77,30 @@ Ensure no bypass actor can push the publishing workflow directly.
 > boundary: a modified workflow file cannot remove it, whereas *any* check written
 > inside the workflow can be deleted by the copy that runs it.
 
-### 2. Let GitHub Actions open the Release PR
+### 2. Protect the release tags
+
+`main`'s ruleset does **not** cover tags — they are a separate namespace. That
+matters because release-please does **not** reject a tag that already exists, and
+GitHub's Create Release **ignores `target_commitish` when the tag is already
+there**. So anyone who can push `refs/tags/v*` can pre-place a tag; the merge of a
+legitimate Release PR then creates a Release *for their tag*.
+
+The workflow refuses to publish that (it binds the worktree to the Release PR's own
+merge commit), but defence in depth belongs at the boundary, not only in a file the
+run could be asked to execute a modified copy of:
+
+```bash
+gh api repos/pnocera/bookstack-mcp-server/rulesets --method POST --input - <<'JSON'
+{ "name": "release-tags", "target": "tag", "enforcement": "active",
+  "conditions": { "ref_name": { "include": ["refs/tags/v*"], "exclude": [] } },
+  "rules": [ { "type": "creation" }, { "type": "update" }, { "type": "deletion" } ] }
+JSON
+```
+
+Add release-please's identity as the **only** bypass actor, so the automation can
+still tag and nobody else can.
+
+### 3. Let GitHub Actions open the Release PR
 
 *Settings → Actions → General → Workflow permissions →*
 **"Allow GitHub Actions to create and approve pull requests"**
@@ -101,7 +124,7 @@ all.
 
 [ghtoken]: https://docs.github.com/en/actions/concepts/security/github_token#when-github_token-triggers-workflow-runs
 
-### 3. Configure the npm trusted publisher
+### 4. Configure the npm trusted publisher
 
 > **npmjs.com → the package → Settings → Trusted Publisher →**
 > - organization/repository: `pnocera/bookstack-mcp-server`
@@ -115,8 +138,8 @@ all.
 
 | Missing | Symptom |
 | --- | --- |
-| #2, the GitHub setting | **No Release PR is ever created.** No PR, no tag, no publish job, nothing to recover. |
-| #3, the npm publisher | The PR merges and the **tag and Release are created correctly**; the run then fails at `npm publish` with an auth error. |
+| #3, the GitHub setting | **No Release PR is ever created.** No PR, no tag, no publish job, nothing to recover. |
+| #4, the npm publisher | The PR merges and the **tag and Release are created correctly**; the run then fails at `npm publish` with an auth error. |
 
 [envs]: https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments
 
@@ -147,7 +170,7 @@ lines.
 Before merging the first Release PR:
 
 0. **Approve its workflow runs** ("Approve workflows to run" on the PR) and let both
-   required checks pass — they do not start on their own (prerequisite #2). Redo
+   required checks pass — they do not start on their own (prerequisite #3). Redo
    this after any bot refresh.
 1. In `CHANGELOG.md`: move the `[Unreleased]` body **into** the generated 2.0.0
    section; drop the generated summary where the curated text says it better;
@@ -211,7 +234,7 @@ what release-please reads.
   **Only actually a gate once the ruleset in prerequisite #1 is applied**; the
   release workflow has no dependency on CI. On the bot's Release PR these runs
   additionally need a human to **approve the workflow runs** before they start at
-  all — see prerequisite #2.
+  all — see prerequisite #3.
 - The live integration suite deliberately does **not** run in CI (it needs a real
   BookStack). Run it before a significant release:
   `docker compose up -d db bookstack && bun run test:integration`.
@@ -327,10 +350,12 @@ AT="$(git show "$SHA:package.json" | node -pe 'JSON.parse(require("fs").readFile
 MAN="$(git show "$SHA:.release-please-manifest.json" | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8"))["."]')"
 [ "$MAN" = "$VERSION" ] || { echo "manifest at $SHA is $MAN, not $VERSION" >&2; exit 1; }
 
-# Anchored and literal: a bare `grep -q "$VERSION"` matches the compare URL in
-# the [Unreleased] link and passes with no heading at all.
+# LITERAL comparison, not a regex. `grep -q "$VERSION"` matches the [Unreleased]
+# compare URL and passes with no heading at all; anchoring it but leaving the
+# brackets optional and the tail unbounded still accepts `## [2.0.01] - wrong`,
+# `## [2.0.0`, `## 2.0.0]` and `## 2.0.0-junk`.
 CL="$(git show "$SHA:CHANGELOG.md")"
-grep -qE "^## \[?${VERSION//./\\.}\]?" <<<"$CL" \
+awk -v v="$VERSION" '$0 == "## ["v"]" || index($0, "## ["v"] - ") == 1 {f=1} END{exit !f}' <<<"$CL" \
   || { echo "CHANGELOG at $SHA has no '## [$VERSION]' heading" >&2; exit 1; }
 
 echo "releasing $SHA as $TAG"
@@ -355,8 +380,17 @@ else
   git push origin "refs/tags/$TAG"     # push the tag itself, by name
 fi
 
-if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
-  echo "Release $TAG already exists — leaving it alone"
+# `gh release view` succeeding does NOT mean a published release exists: it
+# returns drafts and prereleases too. Check what it actually is.
+if REL="$(gh release view "$TAG" --repo "$REPO" --json tagName,isDraft,isPrerelease,publishedAt 2>/dev/null)"; then
+  read -r RTAG RDRAFT RPRE RPUB <<<"$(jq -r '"\(.tagName) \(.isDraft) \(.isPrerelease) \(.publishedAt // "null")"' <<<"$REL")"
+  if [ "$RTAG" = "$TAG" ] && [ "$RDRAFT" = "false" ] && [ "$RPRE" = "false" ] && [ "$RPUB" != "null" ]; then
+    echo "Release $TAG already published — leaving it alone"
+  else
+    echo "Release $TAG exists but is draft=$RDRAFT prerelease=$RPRE published=$RPUB (tag $RTAG)." >&2
+    echo "Publish or delete it deliberately, then re-run. Not guessing." >&2
+    exit 1
+  fi
 else
   gh release create "$TAG" --repo "$REPO" --verify-tag --generate-notes
 fi

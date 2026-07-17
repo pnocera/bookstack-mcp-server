@@ -34,9 +34,18 @@ on:
   push:
     branches: [main]
 
-# One release PR in flight at a time; never race two runs into the same branch.
+# PER-SHA, deliberately. The obvious `group: release-${{ github.ref }}` shares one
+# queue across every push to main, and GitHub keeps only ONE pending run per group
+# — a newer push CANCELS AND REPLACES the pending one. That is not a style issue
+# here: if the Release PR's own run is still pending when the next PR merges, the
+# replacement run is the only one left, and (with the gate below) it declines to
+# create the release, so the merged Release PR is never released at all. Giving
+# each push its own group means no run can evict another. The cost is that two
+# runs may groom the Release PR concurrently; release-please rebuilds it from the
+# target branch and force-updates, so that converges. Losing the release run does
+# not.
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
@@ -54,19 +63,56 @@ jobs:
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
+      pr_number: ${{ steps.release.outputs.prNumber }}
     steps:
+      # WHY THIS GATE EXISTS.
+      # release-please decides what to release by searching the repo's CURRENTLY
+      # merged PRs for the `autorelease: pending` label — it has no idea which
+      # push triggered this run. So ANY push's run can create the release for a
+      # Release PR that merged earlier, tagging that PR's merge commit while this
+      # run's GITHUB_SHA is some unrelated later commit. Two consequences:
+      #
+      #  * npm builds provenance from GITHUB_SHA, not from the checkout, so such a
+      #    run would sign a statement naming the wrong source commit; and
+      #  * a pre-existing tag at THIS push's commit would then satisfy any
+      #    "HEAD == GITHUB_SHA" check while shipping code the Release PR never
+      #    covered.
+      #
+      # Rather than detect that after the irreversible tag, only let the run whose
+      # own commit IS the pending Release PR's merge create a release. Every other
+      # push still grooms the Release PR; it just cannot mint anything.
+      - name: Is this push the merge of a pending Release PR?
+        id: classify
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          N="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" \
+                 --jq '[.[] | select(any(.labels[]; .name == "autorelease: pending")) | .number] | first // empty')"
+          if [ -n "$N" ]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "this push is the merge of Release PR #${N} — release creation enabled"
+          else
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "not a Release PR merge — will groom the Release PR only"
+          fi
+
       # Pinned to a reviewed commit, not a moving major tag: this action mints
       # tags and GitHub Releases, so "whatever v4 points at that day" is not a
       # supply chain worth having. This SHA is v4.4.1, which bundles
       # release-please 17.3.0 — the version the bootstrap was validated against
       # (verified via the GitHub API, not assumed: an earlier revision of this
       # file pinned a02a34c and called it v4.4.1; it is v4.2.0/16.18.0).
+      #
+      # skip-github-release takes ONLY "true"/"false" (empty => unset => release
+      # creation ON), which is why classify always writes one of those two.
       - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4.4.1
         id: release
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
           token: ${{ secrets.GITHUB_TOKEN }}
+          skip-github-release: ${{ steps.classify.outputs.skip }}
 
   publish:
     name: Publish to npm
@@ -77,6 +123,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      # Read-only, and only to resolve the Release PR's merge_commit_sha — the
+      # independent authority the assertion below binds the worktree to.
+      pull-requests: read
       # Required for npm trusted publishing (OIDC) and --provenance. This is what
       # lets us publish with NO stored NPM_TOKEN: npm verifies the workflow
       # identity directly, and the tarball carries a verifiable link back to this
@@ -97,35 +146,57 @@ jobs:
         with:
           ref: refs/tags/${{ needs.release-please.outputs.tag_name }}
 
-      # Bind the worktree to the merge that TRIGGERED this run — not to the tag,
-      # which cannot vouch for itself. GITHUB_SHA is the commit pushed to main
-      # (the Release PR merge a human approved); the tag must point at exactly
-      # that. Three distinct failures close here:
+      # THE THREE-WAY EQUALITY:  HEAD == Release PR's merge commit == GITHUB_SHA
       #
-      #  * A tag that already existed at an UNREVIEWED commit. release-please
-      #    does not reject a pre-existing tag, and GitHub's Create Release
-      #    ignores target_commitish when the tag exists — so a pushed vX.Y.Z tag
-      #    gets a Release, release_created=true, and this job would otherwise
-      #    install and publish it (running its prepublishOnly, in a trusted
-      #    id-token:write job). The ruleset protects refs/heads/main, not tags.
-      #  * A queued run releasing an OLDER pending Release PR, where the tag
-      #    commit and GITHUB_SHA legitimately differ.
-      #  * A false provenance claim. npm builds provenance from GITHUB_SHA, not
-      #    from HEAD, so publishing when they differ would sign a statement
-      #    naming a commit that is not the source in the tarball.
+      # Each term is load-bearing and none can vouch for the others:
       #
-      # Deliberately NOT `refs/tags/${TAG}^{}`: that peeled pseudo-ref exists
-      # only for ANNOTATED tags, and release-please creates LIGHTWEIGHT ones
-      # (Create Release with a commit SHA). Querying it returns empty with exit
-      # 0, so a peel-based guard fails every ordinary release — after the tag.
-      - name: Assert the worktree is the merge that triggered this run
+      #  * PR.merge_commit_sha is the only INDEPENDENT authority for what this
+      #    release is supposed to be — it comes from the PR a human merged, not
+      #    from the tag. Needed because release-please does not reject a
+      #    pre-existing tag, and GitHub's Create Release IGNORES target_commitish
+      #    when the tag already exists: a tag pushed at some other commit would
+      #    otherwise get a Release, report release_created, and be installed and
+      #    published here (running ITS prepublishOnly, in a trusted
+      #    id-token:write job). The main ruleset does not protect tags.
+      #  * HEAD proves the worktree we are about to publish is that commit.
+      #  * GITHUB_SHA is what npm stamps into provenance — it does NOT look at the
+      #    checkout. If it differed, the signed statement would name a commit that
+      #    is not the source in the tarball. The classify gate is what makes this
+      #    term true on the normal path.
+      #
+      # Deliberately NOT `refs/tags/${TAG}^{}`: that peeled pseudo-ref exists only
+      # for ANNOTATED tags, and release-please creates LIGHTWEIGHT ones (Create
+      # Release with a commit SHA). Querying it returns empty with exit 0, so a
+      # peel-based guard would fail every ordinary release — after the tag.
+      - name: Assert the worktree is the reviewed Release PR merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ needs.release-please.outputs.pr_number }}
         run: |
-          HEAD_SHA="$(git rev-parse HEAD)"
-          if [ "$HEAD_SHA" != "$GITHUB_SHA" ]; then
-            echo "::error::Tag ${TAG} is at ${HEAD_SHA}, but this run's commit is ${GITHUB_SHA}. Refusing to publish." >&2
+          if [ -z "$PR_NUMBER" ]; then
+            echo "::error::release-please reported no Release PR number; refusing to publish." >&2
             exit 1
           fi
-          echo "HEAD ${HEAD_SHA} == GITHUB_SHA (tag ${TAG} is the reviewed merge)"
+          # `.merged`, NOT `.state`: a PR closed WITHOUT merging is also
+          # state=closed, and GitHub still reports a merge_commit_sha for it (and
+          # for open PRs, where it is merely a test-merge commit). Only `.merged`
+          # distinguishes an actual merge.
+          read -r MERGED MERGE_SHA < <(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
+            --jq '"\(.merged) \(.merge_commit_sha // "")"')
+          if [ "$MERGED" != "true" ] || [ -z "$MERGE_SHA" ]; then
+            echo "::error::Release PR #${PR_NUMBER} is not merged (merged=${MERGED}); refusing to publish." >&2
+            exit 1
+          fi
+          HEAD_SHA="$(git rev-parse HEAD)"
+          if [ "$HEAD_SHA" != "$MERGE_SHA" ]; then
+            echo "::error::Tag ${TAG} is at ${HEAD_SHA}, but Release PR #${PR_NUMBER} merged as ${MERGE_SHA}." >&2
+            exit 1
+          fi
+          if [ "$MERGE_SHA" != "$GITHUB_SHA" ]; then
+            echo "::error::Release PR #${PR_NUMBER} merged as ${MERGE_SHA}, but this run's commit is ${GITHUB_SHA}; provenance would name the wrong source." >&2
+            exit 1
+          fi
+          echo "HEAD == PR #${PR_NUMBER} merge == GITHUB_SHA (${HEAD_SHA})"
 
       # The tag and the code must agree. release-please derives both, so a
       # mismatch means something upstream is wrong — and publishing anyway would
