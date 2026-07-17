@@ -97,22 +97,35 @@ jobs:
         with:
           ref: refs/tags/${{ needs.release-please.outputs.tag_name }}
 
-      # Belt and braces on the above: prove the worktree IS the tag's commit, as
-      # the REMOTE reports it — independent of whatever local refs checkout left
-      # behind. Empty peel => fail, never "assume fine".
-      - name: Assert the worktree is the release tag
+      # Bind the worktree to the merge that TRIGGERED this run — not to the tag,
+      # which cannot vouch for itself. GITHUB_SHA is the commit pushed to main
+      # (the Release PR merge a human approved); the tag must point at exactly
+      # that. Three distinct failures close here:
+      #
+      #  * A tag that already existed at an UNREVIEWED commit. release-please
+      #    does not reject a pre-existing tag, and GitHub's Create Release
+      #    ignores target_commitish when the tag exists — so a pushed vX.Y.Z tag
+      #    gets a Release, release_created=true, and this job would otherwise
+      #    install and publish it (running its prepublishOnly, in a trusted
+      #    id-token:write job). The ruleset protects refs/heads/main, not tags.
+      #  * A queued run releasing an OLDER pending Release PR, where the tag
+      #    commit and GITHUB_SHA legitimately differ.
+      #  * A false provenance claim. npm builds provenance from GITHUB_SHA, not
+      #    from HEAD, so publishing when they differ would sign a statement
+      #    naming a commit that is not the source in the tarball.
+      #
+      # Deliberately NOT `refs/tags/${TAG}^{}`: that peeled pseudo-ref exists
+      # only for ANNOTATED tags, and release-please creates LIGHTWEIGHT ones
+      # (Create Release with a commit SHA). Querying it returns empty with exit
+      # 0, so a peel-based guard fails every ordinary release — after the tag.
+      - name: Assert the worktree is the merge that triggered this run
         run: |
-          PEELED="$(git ls-remote origin "refs/tags/${TAG}^{}" | cut -f1)"
           HEAD_SHA="$(git rev-parse HEAD)"
-          if [ -z "$PEELED" ]; then
-            echo "::error::Could not resolve refs/tags/${TAG} on the remote." >&2
+          if [ "$HEAD_SHA" != "$GITHUB_SHA" ]; then
+            echo "::error::Tag ${TAG} is at ${HEAD_SHA}, but this run's commit is ${GITHUB_SHA}. Refusing to publish." >&2
             exit 1
           fi
-          if [ "$PEELED" != "$HEAD_SHA" ]; then
-            echo "::error::HEAD ${HEAD_SHA} is not tag ${TAG} (${PEELED})." >&2
-            exit 1
-          fi
-          echo "HEAD ${HEAD_SHA} == ${TAG}"
+          echo "HEAD ${HEAD_SHA} == GITHUB_SHA (tag ${TAG} is the reviewed merge)"
 
       # The tag and the code must agree. release-please derives both, so a
       # mismatch means something upstream is wrong — and publishing anyway would

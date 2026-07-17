@@ -327,14 +327,43 @@ AT="$(git show "$SHA:package.json" | node -pe 'JSON.parse(require("fs").readFile
 MAN="$(git show "$SHA:.release-please-manifest.json" | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8"))["."]')"
 [ "$MAN" = "$VERSION" ] || { echo "manifest at $SHA is $MAN, not $VERSION" >&2; exit 1; }
 
-git show "$SHA:CHANGELOG.md" | grep -q "$VERSION" \
-  || { echo "CHANGELOG at $SHA has no $VERSION heading" >&2; exit 1; }
+# Anchored and literal: a bare `grep -q "$VERSION"` matches the compare URL in
+# the [Unreleased] link and passes with no heading at all.
+CL="$(git show "$SHA:CHANGELOG.md")"
+grep -qE "^## \[?${VERSION//./\\.}\]?" <<<"$CL" \
+  || { echo "CHANGELOG at $SHA has no '## [$VERSION]' heading" >&2; exit 1; }
 
 echo "releasing $SHA as $TAG"
-git tag -a "$TAG" -m "$TAG" "$SHA"     # annotated, at an explicit SHA
-git push origin "refs/tags/$TAG"       # push the tag itself, by name
-gh release create "$TAG" --repo "$REPO" --verify-tag --generate-notes
+
+# Resumable: an interrupted run leaves a local and/or remote tag behind, and a
+# blind re-run would die on "tag already exists" and tempt you into copying
+# lines past the guards above. An existing tag is fine ONLY if it is already at
+# $SHA; anything else is a conflict you must look at.
+EXISTING="$(git rev-parse -q --verify "refs/tags/$TAG^{commit}" || true)"
+if [ -n "$EXISTING" ]; then
+  [ "$EXISTING" = "$SHA" ] || { echo "local $TAG is at $EXISTING, not $SHA" >&2; exit 1; }
+else
+  git tag -a "$TAG" -m "$TAG" "$SHA"   # annotated, at an explicit SHA
+fi
+
+REMOTE="$(git ls-remote origin "refs/tags/$TAG" | cut -f1)"
+if [ -n "$REMOTE" ]; then
+  # Peel it: a remote ANNOTATED tag advertises the tag object here, not the commit.
+  REMOTE_C="$(git ls-remote origin "refs/tags/$TAG^{}" | cut -f1)"; REMOTE_C="${REMOTE_C:-$REMOTE}"
+  [ "$REMOTE_C" = "$SHA" ] || { echo "remote $TAG is at $REMOTE_C, not $SHA" >&2; exit 1; }
+else
+  git push origin "refs/tags/$TAG"     # push the tag itself, by name
+fi
+
+if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+  echo "Release $TAG already exists — leaving it alone"
+else
+  gh release create "$TAG" --repo "$REPO" --verify-tag --generate-notes
+fi
 ```
+
+Re-run the whole block to resume: every guard above re-runs, and each step is
+skipped only after proving the existing state matches `$SHA`.
 
 Every line of that is load-bearing, because the obvious version of each one fails
 **silently** — all of these exit 0:
@@ -368,7 +397,10 @@ git remote add origin "$REPO"
 # FULLY QUALIFIED refs only -- `clone --branch $TAG` would hand you a same-named
 # BRANCH if one exists (see the table below).
 git fetch -q --depth 1 origin "refs/tags/$TAG:refs/tags/$TAG"
-git fetch -q --depth 1 origin refs/heads/main:refs/remotes/origin/main
+# NOT --depth 1 for main: a shallow main tip has no parent path to the
+# separately fetched tag commit, so the ancestry check below would fail
+# spuriously the moment any later PR merged — i.e. exactly when you need this.
+git fetch -q origin refs/heads/main:refs/remotes/origin/main
 git checkout -q --detach "refs/tags/$TAG^{commit}"
 
 # Prove it is the tag, it is on main, and it says what the tag says.
