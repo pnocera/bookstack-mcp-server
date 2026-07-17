@@ -25,6 +25,15 @@ export interface RecordedRequest {
   /** Query string parsed into a plain object; repeated keys keep the last value. */
   query: Record<string, string>;
   authorization: string | undefined;
+  /**
+   * The `User-Agent` as it arrived ON THE WIRE.
+   *
+   * Recorded rather than inferred from the client's construction-time defaults: an
+   * interceptor or a per-request header can replace that default after the fact, so
+   * reading `axios.defaults` proves what was configured, not what was sent. This is
+   * the server's view — the only one that settles it.
+   */
+  userAgent: string | undefined;
 }
 
 export interface BookStackStub {
@@ -114,6 +123,7 @@ export function startBookStackStub(): BookStackStub {
         path,
         query: Object.fromEntries(url.searchParams),
         authorization,
+        userAgent: request.headers.get('user-agent') ?? undefined,
       });
 
       // The client sends `Authorization: Token <id>:<secret>`. Checking it here is what

@@ -16,6 +16,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import pkg from '../../package.json' with { type: 'json' };
 import {
   type Config,
   ConfigManager,
@@ -44,6 +45,11 @@ const PINNED_ENV = [
   'LOG_FORMAT',
   'RATE_LIMIT_REQUESTS_PER_MINUTE',
   'RATE_LIMIT_BURST_LIMIT',
+  // The identity tests below set and clear this. Without it here,
+  // savedEnv.get('SERVER_VERSION') is always undefined, so restoreEnv() DELETES an
+  // inherited value rather than restoring it — and afterAll, iterating this same
+  // list, cannot put it back either.
+  'SERVER_VERSION',
 ] as const;
 
 const savedEnv = new Map<string, string | undefined>();
@@ -92,11 +98,17 @@ afterAll(() => {
   for (const key of PINNED_ENV) {
     restoreEnv(key);
   }
-  try {
-    ConfigManager.getInstance().reload();
-  } catch {
-    // The restored environment may not validate on its own (e.g. no BOOKSTACK_API_TOKEN
-    // in a plain `bun test`). That is the state we found it in, so leave it there.
+  // NOT `try { reload() } catch {}`. reload() assigns only when loadConfig()
+  // succeeds, so on the ordinary inherited environment — no BOOKSTACK_API_TOKEN —
+  // it throws before assigning and the catch leaves the singleton holding THIS
+  // suite's snapshot: a closed-port BookStack fixture, and whatever version the
+  // identity tests last loaded. The environment and ConfigManager would then
+  // describe different processes, and the next file believes the singleton.
+  // Dropping it makes the next getInstance() revalidate what is really there.
+  ConfigManager.resetInstance();
+
+  if (ConfigManager.hasInstance()) {
+    throw new Error('http transport suite left a ConfigManager singleton for the next file');
   }
 });
 
@@ -267,6 +279,62 @@ describe('HTTP transport configuration', () => {
     // docker-compose passes `${MCP_AUTH_TOKEN:-}`, i.e. '' when the operator set nothing.
     expect(loadHttpTransportConfig({ MCP_AUTH_TOKEN: '' }).authToken).toBeUndefined();
     expect(loadHttpTransportConfig({}).authToken).toBeUndefined();
+  });
+});
+
+describe('GET / identity', () => {
+  /**
+   * The other surface that announces a version (MCP `initialize` is asserted in
+   * stdio.test.ts). release-please rewrites only package.json, so a literal here
+   * would survive a release and the 2.0.0 tarball would report 1.0.0 from an
+   * artifact npm cannot replace.
+   *
+   * The sentinel is deliberately NOT the package's own version: while package.json
+   * says 1.0.0, asserting package.json#version passes just as happily against a
+   * hard-coded '1.0.0'. Driving the real route with a value the source cannot
+   * contain is what makes the assertion mean something.
+   */
+  it('reports the configured version, not a literal', async () => {
+    setEnv('SERVER_VERSION', '9.8.7-sentinel');
+    const appConfig = ConfigManager.getInstance().reload();
+    const { url } = await startApp(
+      { bodyLimitBytes: DEFAULT_HTTP_BODY_LIMIT_BYTES, authToken: TEST_AUTH_TOKEN },
+      appConfig
+    );
+
+    const body = (await (await fetch(`${url}/`)).json()) as { version?: string };
+
+    expect(body.version).toBe('9.8.7-sentinel');
+
+    restoreEnv('SERVER_VERSION');
+    config = ConfigManager.getInstance().reload();
+  });
+
+  /**
+   * The path a RELEASE takes. The test above only proves this route can read the
+   * override; the sentinel arrives through the very branch a default-only-stale bug
+   * keeps working. `.env.example` and the runbook tell operators to leave
+   * SERVER_VERSION unset, so THIS is the branch the published artifact runs —
+   * demonstrated, not theorised: routing just the two reads in src/server.ts through
+   * such a branch left the whole suite green.
+   *
+   * Coincidence-bound while package.json says 1.0.0; decisive the moment
+   * release-please writes 2.0.0, which is the release this must not get wrong.
+   */
+  it('reports the package version when SERVER_VERSION is unset', async () => {
+    restoreEnv('SERVER_VERSION');
+    delete process.env.SERVER_VERSION;
+    const appConfig = ConfigManager.getInstance().reload();
+    const { url } = await startApp(
+      { bodyLimitBytes: DEFAULT_HTTP_BODY_LIMIT_BYTES, authToken: TEST_AUTH_TOKEN },
+      appConfig
+    );
+
+    const body = (await (await fetch(`${url}/`)).json()) as { version?: string };
+
+    expect(body.version).toBe(pkg.version);
+
+    config = ConfigManager.getInstance().reload();
   });
 });
 

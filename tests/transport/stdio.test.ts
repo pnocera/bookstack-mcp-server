@@ -20,6 +20,7 @@
 import { afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { join } from 'node:path';
 import type { Subprocess } from 'bun';
+import pkg from '../../package.json' with { type: 'json' };
 import { type BookStackStub, startBookStackStub } from './stub-bookstack';
 
 const REPO_ROOT = join(import.meta.dir, '..', '..');
@@ -256,6 +257,46 @@ async function initialize(server: StdioServer): Promise<JsonRpcMessage> {
 }
 
 describe('stdio entry point', () => {
+  /**
+   * The identity an MCP client actually reads. release-please rewrites only
+   * package.json, so a version literal anywhere in src/ would survive a release and
+   * the 2.0.0 tarball would introduce itself as 1.0.0 here — in an artifact npm
+   * cannot replace.
+   *
+   * This proves the override is honoured, and nothing more. It CANNOT see a
+   * consumer that reads config only when SERVER_VERSION is set and falls back to a
+   * stale literal otherwise — the sentinel arrives through the very branch such a
+   * bug keeps working. The test below covers the other branch.
+   */
+  it('announces the configured version to an MCP client', async () => {
+    const server = spawnStdioServer({ SERVER_VERSION: '9.8.7-sentinel' });
+
+    const initReply = await initialize(server);
+
+    expect(initReply.error).toBeUndefined();
+    expect(initReply.result?.serverInfo?.version).toBe('9.8.7-sentinel');
+  }, 20_000);
+
+  /**
+   * The path a RELEASE takes: `.env.example` and the runbook tell operators to
+   * leave SERVER_VERSION unset, so this branch — not the override above — is what
+   * the published artifact runs. Demonstrated rather than theorised: routing just
+   * the two reads in src/server.ts through a default-only-stale branch left the
+   * whole suite green.
+   *
+   * Coincidence-bound while package.json says 1.0.0 — a literal matches it — which
+   * is why the override test and the spelling scan stay. It becomes decisive in the
+   * real Release PR, the moment release-please writes 2.0.0.
+   */
+  it('announces the package version when SERVER_VERSION is unset', async () => {
+    const server = spawnStdioServer();
+
+    const initReply = await initialize(server);
+
+    expect(initReply.error).toBeUndefined();
+    expect(initReply.result?.serverInfo?.version).toBe(pkg.version);
+  }, 20_000);
+
   it(
     'completes an MCP handshake and lists all 56 tools',
     async () => {

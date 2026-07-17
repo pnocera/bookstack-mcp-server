@@ -96,7 +96,7 @@ export MCP_TRANSPORT="http"
 | `SERVER_PORT` | `3000` | Port the HTTP transport listens on. Ignored in stdio mode. |
 | `HTTP_BODY_LIMIT` | `73400320` (70 MiB) | Maximum accepted `POST /message` body, in bytes. Sized for the largest inline base64 upload the image/attachment tools advertise (50,000 KB). Express's own default is ~100 KB, which would reject real uploads with a `413`. Lower it if untrusted callers can reach the port. |
 | `SERVER_NAME` | `bookstack-mcp-server` | Server name reported over MCP and by `GET /`. |
-| `SERVER_VERSION` | `1.0.0` | Server version reported over MCP and by `GET /`. |
+| `SERVER_VERSION` | the package's own version | Version reported over MCP `initialize`, by `GET /`, and by `bookstack_server_info`. Defaults to `package.json#version`; leave it unset unless you deliberately want a different value. |
 | `RATE_LIMIT_REQUESTS_PER_MINUTE` | `60` | Outbound rate limit toward BookStack. |
 | `RATE_LIMIT_BURST_LIMIT` | `10` | Outbound burst allowance toward BookStack. |
 | `VALIDATION_ENABLED` | `true` | Input validation. Set to `false` to disable. |
@@ -277,6 +277,8 @@ Find comprehensive guides in the `docs/` folder:
 - **[Tools Overview](docs/tools-overview.md)** - Every tool explained
 - **[Resources Guide](docs/resources-guide.md)** - Resource access patterns
 - **[Examples & Workflows](docs/examples-and-workflows.md)** - Real-world usage
+- **[Integration Testing](docs/integration-testing.md)** - Running the live suite against a real BookStack
+- **[Releasing](docs/releasing.md)** - How versions are cut and published
 
 ## ⚡ Quick Examples
 

@@ -226,4 +226,7 @@ and closes a number of correctness and security defects.
 
 [Keep a Changelog]: https://keepachangelog.com/en/1.1.0/
 [Biome]: https://biomejs.dev/
-[Unreleased]: https://github.com/pnocera/bookstack-mcp-server/compare/main...HEAD
+<!-- No v1.0.0 tag exists: 1.0.0 was published to npm before this repo tagged
+     releases, so compare/v1.0.0...HEAD 404s. v2.0.0 is the first tag; from then
+     on these are ordinary compare links. -->
+[Unreleased]: https://github.com/pnocera/bookstack-mcp-server/commits/main

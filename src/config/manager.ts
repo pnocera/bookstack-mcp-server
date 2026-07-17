@@ -2,6 +2,7 @@ import { config as dotenvConfig } from 'dotenv';
 import { z } from 'zod';
 import { Logger } from '../utils/logger';
 import { canonicalBaseUrl } from '../utils/rateLimit';
+import { VERSION } from '../version';
 
 // Load environment variables.
 //
@@ -65,7 +66,7 @@ export const ConfigSchema = z.object({
   }),
   server: z.object({
     name: z.string().default('bookstack-mcp-server'),
-    version: z.string().default('1.0.0'),
+    version: z.string().default(VERSION),
     port: z.number().positive().default(3000),
   }),
   rateLimit: z.object({
@@ -234,7 +235,7 @@ export function loadHttpTransportConfig(env: EnvSource = process.env): HttpTrans
  * Configuration manager singleton
  */
 export class ConfigManager {
-  private static instance: ConfigManager;
+  private static instance: ConfigManager | undefined;
   private config: Config;
   private logger: Logger;
 
@@ -251,6 +252,34 @@ export class ConfigManager {
   }
 
   /**
+   * Drop the singleton so the next getInstance() rebuilds from the current environment.
+   *
+   * For tests, and load-bearing there. `reload()` assigns only after loadConfig()
+   * SUCCEEDS, so a suite that restores an environment the config cannot validate -
+   * the normal case: no BOOKSTACK_API_TOKEN outside a fixture - is left holding the
+   * previous test's configuration. bun runs every test file in one process against
+   * this singleton, so the next file can then read a credential that is not in its
+   * environment, or find a stub base URL whose server has already stopped. Resetting
+   * makes the next getInstance() revalidate and fail honestly instead.
+   */
+  static resetInstance(): void {
+    ConfigManager.instance = undefined;
+  }
+
+  /**
+   * Whether a singleton is currently cached.
+   *
+   * For tests, so a teardown can PROVE it left no instance behind without calling
+   * getInstance() — which would construct one, and so destroy the very state it is
+   * checking. Probing by construction also forces a try/catch, and a catch that
+   * decides what happened from an error's message text accepts any unrelated
+   * failure wearing the same prefix.
+   */
+  static hasInstance(): boolean {
+    return ConfigManager.instance !== undefined;
+  }
+
+  /**
    * Load and validate configuration from environment variables
    */
   private loadConfig(): Config {
@@ -262,7 +291,7 @@ export class ConfigManager {
       },
       server: {
         name: process.env.SERVER_NAME || 'bookstack-mcp-server',
-        version: process.env.SERVER_VERSION || '1.0.0',
+        version: process.env.SERVER_VERSION || VERSION,
         port: parseInt(process.env.SERVER_PORT || '3000', 10),
       },
       rateLimit: {

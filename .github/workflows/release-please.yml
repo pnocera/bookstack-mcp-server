@@ -1,0 +1,393 @@
+name: Release
+
+# Release automation, in two stages with a human gate between them.
+#
+#   1. `release-please` watches main and maintains a standing "Release PR" that
+#      bumps package.json and prepends a CHANGELOG entry, derived from
+#      Conventional Commit subjects since the last release. Nothing happens until
+#      a human merges that PR.
+#   2. Merging it creates the tag and the GitHub Release, and THIS SAME RUN then
+#      publishes to npm.
+#
+# The version is derived mechanically: `fix:` -> patch, `feat:` -> minor, `!` or a
+# BREAKING CHANGE footer -> major. A mislabelled commit ships the wrong semver;
+# that is the one thing this pipeline cannot check for you.
+#
+# WHY PUBLISH LIVES HERE rather than in its own `on: release` workflow:
+# events created with the default GITHUB_TOKEN do NOT trigger further workflow
+# runs. A separate publish workflow keyed on `release: published` would never
+# fire, and would fail SILENTLY — release and tag appear, npm never updates.
+# Chaining off this job's own `release_created` output avoids that without a
+# long-lived PAT.
+#
+# NOTHING HERE IS THE SECURITY BOUNDARY — the `npm-publish` ENVIRONMENT IS.
+# `on: push` runs the workflow file FROM THE PUSHED REF, so a writer can push a
+# branch carrying a copy of this file with the branch filter changed and the
+# guards deleted, and it will run. npm's trusted publisher binds repository +
+# workflow FILENAME — not the ref — so that copy mints exactly the same OIDC
+# identity. Removing `workflow_dispatch` did not fix this; it only closed one
+# door into the same room. Every check below can be deleted by the copy that
+# runs it.
+#
+# The one field npm validates that a branch copy CANNOT satisfy is the
+# environment claim. `environment: npm-publish` on the publish job, an
+# environment whose deployment branches are restricted to `main`, and that exact
+# name configured on npm's trusted publisher, together mean: GitHub refuses to
+# grant the environment to a run on any other ref, and npm refuses a token
+# without it. That is why the environment is a PREREQUISITE, not a hardening
+# suggestion. See docs/releasing.md.
+#
+# WHY PUBLISH IS CHAINED OFF THIS RUN rather than `on: release`: events created
+# with GITHUB_TOKEN do not trigger further workflow runs, so a separate publish
+# workflow would never fire — silently.
+on:
+  push:
+    branches: [main]
+
+# NO WORKFLOW-LEVEL CONCURRENCY. The two halves need OPPOSITE semantics and one
+# shared group cannot give both — see each job's own `concurrency` block.
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # RELEASE STATE: the one place release-please state is mutated. Serialized.
+  # ---------------------------------------------------------------------------
+  release:
+    name: Create release
+    runs-on: ubuntu-latest
+    # ONE GROUP, `queue: max`, and the two release-please calls kept IN ORDER
+    # inside this job. All three properties are load-bearing:
+    #
+    #  * ONE GROUP — release creation and PR grooming both mutate the same
+    #    `autorelease:*` labels and bot branch. `createPullRequests()` computes its
+    #    whole candidate against the tags visible AT THAT MOMENT and only afterwards
+    #    checks for a still-pending merged PR, bailing out only if it finds one. Run
+    #    it beside release creation and this happens: groom scans before the tag
+    #    exists; release creates the tag and flips pending -> tagged; groom's later
+    #    check now finds nothing pending and writes the candidate it computed before
+    #    the release — a plausible, green, WRONG standing Release PR. Splitting these
+    #    into separate jobs (an earlier revision of this file) is what allowed that.
+    #  * IN ORDER, release before groom — that is precisely the ordering the action
+    #    performs in a single invocation, and the reason it is safe.
+    #  * queue: max — the default (`single`) keeps only ONE pending run per group
+    #    and a newer push CANCELS AND REPLACES it. Since only this Release PR's own
+    #    run may release it (see the gate), evicting that run means it is never
+    #    released at all. `max` queues up to 100 instead of evicting. It may not be
+    #    combined with `cancel-in-progress: true` — GitHub rejects the workflow.
+    concurrency:
+      group: release-state-${{ github.ref }}
+      queue: max
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+      # Required: release-please drives its state machine with `autorelease:*`
+      # LABELS and PR comments, which are issue-scoped in the GitHub API. Without
+      # this the action cannot label the PR it just opened, and the release never
+      # becomes eligible.
+      issues: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      pr_number: ${{ steps.release.outputs.prNumber }}
+    steps:
+      # WHY THIS GATE EXISTS.
+      # release-please decides what to release by searching the repo's CURRENTLY
+      # merged PRs for the `autorelease: pending` label — it has no idea which push
+      # triggered this run. So ANY push's run can create the release for a Release
+      # PR that merged earlier, tagging that PR's merge commit while this run's
+      # GITHUB_SHA is an unrelated later commit. npm builds provenance from
+      # GITHUB_SHA rather than the checkout, so that run would sign a statement
+      # naming the wrong source. Rather than detect it after the irreversible tag,
+      # only the run whose own commit IS the pending Release PR's merge may release.
+      #
+      # EMPTY IS NOT "ordinary push". Prerequisite #1 makes every main push arrive
+      # via a merged PR, so "no PR for this commit" is a lie the API tells while
+      # the association or its labels are still settling — and believing it burns
+      # the ONE run allowed to release this PR, going green with no tag, no Release
+      # and no npm version. So: require the PR to exist and to be a real merge of
+      # THIS commit, retry while that is not yet visible, and only then read the
+      # label. Nothing here is irreversible, so failing loudly is free: rerun the
+      # whole run.
+      - name: Is this push the merge of a pending Release PR?
+        id: classify
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          PR=""
+          for attempt in 1 2 3 4 5 6; do
+            PR="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" \
+                    --jq "[.[] | select(.merged_at != null and .merge_commit_sha == \"${GITHUB_SHA}\" and .base.ref == \"${GITHUB_REF_NAME}\") | .number] | first // empty")"
+            [ -n "$PR" ] && break
+            echo "attempt ${attempt}: no merged PR for ${GITHUB_SHA} yet; retrying"
+            sleep 10
+          done
+          if [ -z "$PR" ]; then
+            echo "::error::No merged PR found for ${GITHUB_SHA} on ${GITHUB_REF_NAME}. Every push to a protected main arrives via a PR, so this is an unresolved lookup, not an ordinary push. Nothing irreversible has happened — re-run this whole run." >&2
+            exit 1
+          fi
+
+          # Is it a Release PR? Decide on release-please's own branch naming, which
+          # is structural — NOT on the mutable `autorelease: pending` label alone,
+          # which a concurrent run may already have flipped to `tagged`.
+          read -r HEAD_REF LABELS < <(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}" \
+            --jq '"\(.head.ref) \([.labels[].name] | join(","))"')
+          # release-please's OWN branch shapes, not a `release-please--*` glob. It
+          # builds either `release-please--branches--<target>` (this config: one
+          # package at the root, no component) or
+          # `release-please--branches--<target>--components--<component>`. A glob
+          # would also claim an ordinary human branch like
+          # `release-please--documentation` and then hard-fail its post-merge run
+          # for carrying no autorelease label; matching only the exact no-component
+          # branch would silently stop releasing if a component is ever configured.
+          case "$HEAD_REF" in
+            "release-please--branches--${GITHUB_REF_NAME}") IS_RELEASE_PR=true ;;
+            "release-please--branches--${GITHUB_REF_NAME}--components--"*) IS_RELEASE_PR=true ;;
+            *) IS_RELEASE_PR=false ;;
+          esac
+
+          if [ "$IS_RELEASE_PR" = "false" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "PR #${PR} (${HEAD_REF}) is not a Release PR — nothing to release here"
+            exit 0
+          fi
+          case ",${LABELS}," in
+            *",autorelease: pending,"*)
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+              echo "PR #${PR} is the pending Release PR — release creation enabled" ;;
+            *",autorelease: tagged,"*|*",autorelease: published,"*)
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "PR #${PR} is already released (${LABELS}) — nothing to do" ;;
+            *)
+              echo "::error::PR #${PR} looks like a Release PR (${HEAD_REF}) but carries neither autorelease: pending nor a released label (labels: ${LABELS:-<none>}). Refusing to guess." >&2
+              exit 1 ;;
+          esac
+
+      # STEP 1 of the state machine: create the release, and nothing else.
+      #
+      # Pinned to a reviewed commit, not a moving major tag: this action mints tags
+      # and GitHub Releases, so "whatever v4 points at that day" is not a supply
+      # chain worth having. This SHA is v4.4.1, which bundles release-please 17.3.0
+      # — the version the bootstrap was validated against (verified via the GitHub
+      # API, not assumed: an earlier revision pinned a02a34c and called it v4.4.1;
+      # it is v4.2.0/16.18.0).
+      #
+      # skip-github-release takes ONLY "true"/"false" (empty => unset => release
+      # creation ON), which is why classify always writes one of those two.
+      - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4.4.1
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          token: ${{ secrets.GITHUB_TOKEN }}
+          skip-github-pull-request: true
+          skip-github-release: ${{ steps.classify.outputs.skip }}
+
+      # "The action succeeded" does NOT mean "the release happened". A Release PR
+      # with a damaged title, unparseable body or unrecognised branch makes
+      # buildRelease() return undefined; buildReleases() turns that into an empty
+      # list; the action then exits 0 WITHOUT setting release_created. `publish`
+      # would read that as "nothing to do" and skip, leaving the whole run green
+      # with no tag, no Release and no npm version — and no later run may release
+      # this PR. That is not hypothetical: the one-time 2.0.0 procedure has a human
+      # hand-editing that PR body around release-please's parseable structure.
+      # Nothing is irreversible yet, so fail loudly and let the operator repair the
+      # PR and re-run.
+      - name: A release was expected — assert one happened
+        if: ${{ steps.classify.outputs.skip == 'false' }}
+        env:
+          CREATED: ${{ steps.release.outputs.release_created }}
+          TAG: ${{ steps.release.outputs.tag_name }}
+          PR: ${{ steps.release.outputs.prNumber }}
+        run: |
+          if [ "$CREATED" != "true" ] || [ -z "$TAG" ] || [ -z "$PR" ]; then
+            echo "::error::This run was the pending Release PR's merge, but release-please created no release (release_created='${CREATED}', tag_name='${TAG}', prNumber='${PR}'). Its title/body most likely no longer parse. No tag exists, so nothing is lost: repair the merged Release PR and re-run this run." >&2
+            exit 1
+          fi
+          echo "release ${TAG} created from PR #${PR}"
+
+      # STEP 2: groom the standing Release PR — AFTER any release above, never
+      # beside it. Same job, so the ordering is guaranteed rather than hoped for.
+      - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4.4.1
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          token: ${{ secrets.GITHUB_TOKEN }}
+          skip-github-release: true
+
+  publish:
+    name: Publish to npm
+    needs: release
+    # The ONLY publish trigger: release-please created a Release from a merged
+    # Release PR on main. No manual input, no other ref.
+    if: ${{ needs.release.outputs.release_created == 'true' }}
+    runs-on: ubuntu-latest
+    # Serialize registry writes. Every bare `npm publish` also MOVES the shared
+    # `latest` dist-tag to the version it publishes — and dist-tags are mutable
+    # even though versions are not. Two releases merged close together (or, with a
+    # required reviewer on the environment, approved out of order) can otherwise
+    # overlap: 2.1.0 lands first, slower 2.0.0 lands second, both commands succeed,
+    # both GitHub Releases are green — and `npm install` now resolves to 2.0.0.
+    # None of the tag/package/PR equality checks sees it, because each publish is
+    # internally consistent. queue: max so a waiting publish is never evicted.
+    concurrency:
+      group: npm-publish
+      queue: max
+      cancel-in-progress: false
+    # THE boundary — the only control here a branch copy of this file cannot
+    # delete. Its deployment-branch policy is enforced by GitHub (a run on any
+    # other ref is refused the environment, so no OIDC token), and npm's trusted
+    # publisher requires this exact environment name in the token's claims (so a
+    # copy that simply drops this line is rejected by npm instead). Removing or
+    # renaming it silently reopens publish-from-any-branch. See prerequisite #2.
+    environment: npm-publish
+    permissions:
+      contents: read
+      # Read-only, and only to resolve the Release PR's merge_commit_sha — the
+      # independent authority the assertion below binds the worktree to.
+      pull-requests: read
+      # Required for npm trusted publishing (OIDC) and --provenance. This is what
+      # lets us publish with NO stored NPM_TOKEN: npm verifies the workflow
+      # identity directly, and the tarball carries a verifiable link back to this
+      # commit and run.
+      id-token: write
+    env:
+      TAG: ${{ needs.release.outputs.tag_name }}
+    steps:
+      # FULLY QUALIFIED, and that matters: given a bare `v2.0.0`, checkout asks
+      # `branchExists(origin/v2.0.0)` FIRST and only falls back to the tag. A
+      # branch and a tag may legally share a short name, so anyone able to push
+      # `refs/heads/v2.0.0` could hand this trusted, id-token:write job an
+      # unreviewed worktree — and the version check below would still pass, since
+      # that branch can declare the same version. `refs/tags/...` is passed
+      # through untouched and cannot be shadowed. The `main` ruleset does not
+      # protect `refs/heads/v*`, so this namespace is the only thing that does.
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: refs/tags/${{ needs.release.outputs.tag_name }}
+
+      # THE THREE-WAY EQUALITY:  HEAD == Release PR's merge commit == GITHUB_SHA
+      #
+      # Each term is load-bearing and none can vouch for the others:
+      #
+      #  * PR.merge_commit_sha is the only INDEPENDENT authority for what this
+      #    release is supposed to be — it comes from the PR a human merged, not
+      #    from the tag. Needed because release-please does not reject a
+      #    pre-existing tag, and GitHub's Create Release IGNORES target_commitish
+      #    when the tag already exists: a tag pushed at some other commit would
+      #    otherwise get a Release, report release_created, and be installed and
+      #    published here (running ITS prepublishOnly, in a trusted
+      #    id-token:write job). The main ruleset does not protect tags.
+      #  * HEAD proves the worktree we are about to publish is that commit.
+      #  * GITHUB_SHA is what npm stamps into provenance — it does NOT look at the
+      #    checkout. If it differed, the signed statement would name a commit that
+      #    is not the source in the tarball. The classify gate is what makes this
+      #    term true on the normal path.
+      #
+      # Deliberately NOT `refs/tags/${TAG}^{}`: that peeled pseudo-ref exists only
+      # for ANNOTATED tags, and release-please creates LIGHTWEIGHT ones (Create
+      # Release with a commit SHA). Querying it returns empty with exit 0, so a
+      # peel-based guard would fail every ordinary release — after the tag.
+      - name: Assert the worktree is the reviewed Release PR merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ needs.release.outputs.pr_number }}
+        run: |
+          if [ -z "$PR_NUMBER" ]; then
+            echo "::error::release-please reported no Release PR number; refusing to publish." >&2
+            exit 1
+          fi
+          # `.merged`, NOT `.state`: a PR closed WITHOUT merging is also
+          # state=closed, and GitHub still reports a merge_commit_sha for it (and
+          # for open PRs, where it is merely a test-merge commit). Only `.merged`
+          # distinguishes an actual merge.
+          read -r MERGED MERGE_SHA < <(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
+            --jq '"\(.merged) \(.merge_commit_sha // "")"')
+          if [ "$MERGED" != "true" ] || [ -z "$MERGE_SHA" ]; then
+            echo "::error::Release PR #${PR_NUMBER} is not merged (merged=${MERGED}); refusing to publish." >&2
+            exit 1
+          fi
+          HEAD_SHA="$(git rev-parse HEAD)"
+          if [ "$HEAD_SHA" != "$MERGE_SHA" ]; then
+            echo "::error::Tag ${TAG} is at ${HEAD_SHA}, but Release PR #${PR_NUMBER} merged as ${MERGE_SHA}." >&2
+            exit 1
+          fi
+          if [ "$MERGE_SHA" != "$GITHUB_SHA" ]; then
+            echo "::error::Release PR #${PR_NUMBER} merged as ${MERGE_SHA}, but this run's commit is ${GITHUB_SHA}; provenance would name the wrong source." >&2
+            exit 1
+          fi
+          echo "HEAD == PR #${PR_NUMBER} merge == GITHUB_SHA (${HEAD_SHA})"
+
+      # The tag and the code must agree. release-please derives both, so a
+      # mismatch means something upstream is wrong — and publishing anyway would
+      # ship a version nobody reviewed under a tag that says otherwise. `npm
+      # publish` uses package.json, NOT the tag, so this is the check that stops
+      # tag v2.0.0 from shipping 2.0.1.
+      - name: Assert the tag matches package.json
+        run: |
+          PKG_VERSION="$(node -p 'require("./package.json").version')"
+          if [ "$TAG" != "v${PKG_VERSION}" ]; then
+            echo "::error::Tag ${TAG} does not match package.json version ${PKG_VERSION}." >&2
+            exit 1
+          fi
+          echo "tag ${TAG} == package.json ${PKG_VERSION}"
+
+      - uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
+        with:
+          bun-version: 1.3.14
+
+      # Bun runs the package and its prepublishOnly typecheck; npm is what
+      # publishes. Both are needed: `npm publish` runs `prepublishOnly`
+      # (`bun run typecheck`), so a release cannot ship source that does not
+      # compile — which matters here because the package ships TypeScript source,
+      # not a bundle.
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: '24.9.0'
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # Trusted publishing needs npm >= 11.5.1; the runner's bundled npm may
+      # predate it. Pinned rather than @latest so the toolchain that publishes is
+      # the one that was reviewed.
+      - name: Pin npm
+        run: |
+          npm install -g npm@11.6.2
+          npm --version
+
+      # The concurrency group above orders the JOBS; this orders the OUTCOME.
+      # GitHub's queue is FIFO by when a job started waiting, which is not
+      # necessarily release order — and a required reviewer can approve a later
+      # release first. So check the actual downstream postcondition: never move
+      # `latest` backwards. Fail closed and let a human decide (a genuine backfill
+      # should publish under an explicit --tag, not silently steal `latest`).
+      #
+      # This is NOT a "does npm already have it?" pre-check — that idea was
+      # rejected twice: duplicates must stay a loud npm rejection, and an earlier
+      # revision's version of it collapsed network/auth errors into "absent". Here
+      # E404 means an empty registry (fine, publish), and any OTHER failure aborts.
+      - name: Refuse to move `latest` backwards
+        env:
+          VERSION: ${{ needs.release.outputs.tag_name }}
+        run: |
+          V="${VERSION#v}"
+          ERR="$(mktemp)"
+          if LATEST="$(npm view bookstack-mcp-server version --registry=https://registry.npmjs.org 2>"$ERR")"; then
+            NEWEST="$(printf '%s\n%s\n' "$LATEST" "$V" | sort -V | tail -1)"
+            if [ "$NEWEST" = "$LATEST" ] && [ "$LATEST" != "$V" ]; then
+              echo "::error::npm latest is ${LATEST}, newer than ${V}. Publishing would move \`latest\` backwards and npm install would resolve to the older release. If ${V} is a deliberate backfill, publish it by hand with an explicit --tag." >&2
+              exit 1
+            fi
+            echo "npm latest is ${LATEST}; publishing ${V} moves it forward"
+          elif grep -q E404 "$ERR"; then
+            echo "no published versions yet; ${V} will be the first"
+          else
+            echo "::error::Could not read the registry; refusing to publish blind." >&2
+            cat "$ERR" >&2
+            exit 1
+          fi
+
+      - name: Publish
+        run: npm publish --provenance --access public --registry=https://registry.npmjs.org
