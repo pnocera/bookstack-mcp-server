@@ -138,7 +138,9 @@ export class ServerInfoTools {
 
         const serverInfo: MCPServerInfo = {
           name: 'BookStack MCP Server',
-          version: '1.0.0',
+          // From config, like MCP initialize and GET / — not a literal. A literal
+          // here is invisible to release-please and would outlive every release.
+          version: config.server.version,
           description:
             'Comprehensive MCP server providing full access to BookStack knowledge management system. Enables LLMs to read, write, organize, and manage documentation, books, pages, chapters, users, and system settings.',
           capabilities: {

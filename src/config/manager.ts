@@ -2,6 +2,7 @@ import { config as dotenvConfig } from 'dotenv';
 import { z } from 'zod';
 import { Logger } from '../utils/logger';
 import { canonicalBaseUrl } from '../utils/rateLimit';
+import { VERSION } from '../version';
 
 // Load environment variables.
 //
@@ -65,7 +66,7 @@ export const ConfigSchema = z.object({
   }),
   server: z.object({
     name: z.string().default('bookstack-mcp-server'),
-    version: z.string().default('1.0.0'),
+    version: z.string().default(VERSION),
     port: z.number().positive().default(3000),
   }),
   rateLimit: z.object({
@@ -262,7 +263,7 @@ export class ConfigManager {
       },
       server: {
         name: process.env.SERVER_NAME || 'bookstack-mcp-server',
-        version: process.env.SERVER_VERSION || '1.0.0',
+        version: process.env.SERVER_VERSION || VERSION,
         port: parseInt(process.env.SERVER_PORT || '3000', 10),
       },
       rateLimit: {
