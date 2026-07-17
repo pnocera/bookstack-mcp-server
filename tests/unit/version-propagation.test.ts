@@ -6,7 +6,9 @@ import { ServerInfoTools } from '../../src/tools/server-info';
 import type { MCPResource, MCPServerInfo, MCPTool } from '../../src/types';
 import { ErrorHandler } from '../../src/utils/errors';
 import { Logger } from '../../src/utils/logger';
+import { resetSharedRateLimiters } from '../../src/utils/rateLimit';
 import { VERSION } from '../../src/version';
+import { startBookStackStub } from '../transport/stub-bookstack';
 
 /**
  * release-please rewrites package.json and nothing else in src/. Every version
@@ -90,19 +92,36 @@ describe('version propagation', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('sends the configured version as its outbound User-Agent', () => {
-    process.env.SERVER_VERSION = OVERRIDE;
-    const cfg = ConfigManager.getInstance().reload();
+  /**
+   * Asserted from the SERVER's side, on a real request.
+   *
+   * An earlier revision read `axios.defaults.headers['User-Agent']` through a cast.
+   * That proves the constructor set a default — not that the default survives to the
+   * wire. It does not: a request interceptor can overwrite the header afterwards,
+   * and with one added this file still reported all green while the actual request
+   * carried a stale version. The BookStack operator sees the wire, so the test does
+   * too.
+   */
+  it('sends the configured version as its outbound User-Agent', async () => {
+    const stub = startBookStackStub();
+    try {
+      process.env.BOOKSTACK_BASE_URL = stub.baseUrl;
+      process.env.BOOKSTACK_API_TOKEN = stub.apiToken;
+      process.env.SERVER_VERSION = OVERRIDE;
+      const cfg = ConfigManager.getInstance().reload();
 
-    // BookStackClient builds this header once, at construction, from the same
-    // config the protocol surfaces use (src/api/client.ts). It is how the BookStack
-    // operator identifies which server version is calling them.
-    const logger = Logger.getInstance();
-    const client = new BookStackClient(cfg, logger, new ErrorHandler(logger));
-    const ua = (client as unknown as { client: { defaults: { headers: Record<string, string> } } })
-      .client.defaults.headers['User-Agent'];
+      const logger = Logger.getInstance();
+      const client = new BookStackClient(cfg, logger, new ErrorHandler(logger));
+      await client.listBooks();
 
-    expect(ua).toBe(`${cfg.server.name}/${OVERRIDE}`);
+      const seen = stub.requests.at(-1);
+      expect(seen?.path).toBe('/books');
+      expect(seen?.userAgent).toBe(`${cfg.server.name}/${OVERRIDE}`);
+    } finally {
+      await stub.stop();
+      delete process.env.BOOKSTACK_BASE_URL;
+      resetSharedRateLimiters();
+    }
   });
 
   it('reports the configured version from bookstack_server_info, not a literal', async () => {
