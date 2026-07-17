@@ -256,6 +256,27 @@ async function initialize(server: StdioServer): Promise<JsonRpcMessage> {
 }
 
 describe('stdio entry point', () => {
+  /**
+   * The identity an MCP client actually reads. release-please rewrites only
+   * package.json, so a version literal anywhere in src/ would survive a release and
+   * the 2.0.0 tarball would introduce itself as 1.0.0 here — in an artifact npm
+   * cannot replace.
+   *
+   * The sentinel is deliberately NOT the package's own version: asserting
+   * package.json#version proves nothing today, because a literal '1.0.0' equals it
+   * by coincidence. This spawns the REAL entry point, so it fails for any spelling
+   * of a hard-coded value — quoted, template literal, or a constant that stopped
+   * honouring SERVER_VERSION.
+   */
+  it('announces the configured version to an MCP client', async () => {
+    const server = spawnStdioServer({ SERVER_VERSION: '9.8.7-sentinel' });
+
+    const initReply = await initialize(server);
+
+    expect(initReply.error).toBeUndefined();
+    expect(initReply.result?.serverInfo?.version).toBe('9.8.7-sentinel');
+  }, 20_000);
+
   it(
     'completes an MCP handshake and lists all 56 tools',
     async () => {

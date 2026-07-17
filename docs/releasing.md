@@ -207,8 +207,14 @@ Before merging the first Release PR:
 1. In `CHANGELOG.md`: move the `[Unreleased]` body **into** the generated 2.0.0
    section; drop the generated summary where the curated text says it better;
    leave `## [Unreleased]` present but empty.
-2. Fix the link refs: `[2.0.0]: .../compare/v1.0.0...v2.0.0` and
-   `[Unreleased]: .../compare/v2.0.0...HEAD`.
+2. Fix the link refs. **There is no `v1.0.0` tag** — 1.0.0 predates tagging here,
+   so any `compare/v1.0.0...` URL 404s. v2.0.0 is the repo's first tag:
+   `[2.0.0]: .../releases/tag/v2.0.0` and `[Unreleased]: .../compare/v2.0.0...HEAD`.
+   release-please also writes its **own** compare link into the generated heading
+   (`## [2.0.0](.../compare/v1.0.0...v2.0.0)`), built from the manifest's last
+   version — that one 404s too. Repoint it at the release tag while you are editing
+   the section, or tag the real 1.0.0 commit first and leave every link valid.
+   From 2.1.0 onward the generated links are correct and need no edit.
 3. **Edit the PR body too**, replacing the generated notes with the curated ones —
    keeping release-please's parseable structure intact.
 

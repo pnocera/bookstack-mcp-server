@@ -270,6 +270,35 @@ describe('HTTP transport configuration', () => {
   });
 });
 
+describe('GET / identity', () => {
+  /**
+   * The other surface that announces a version (MCP `initialize` is asserted in
+   * stdio.test.ts). release-please rewrites only package.json, so a literal here
+   * would survive a release and the 2.0.0 tarball would report 1.0.0 from an
+   * artifact npm cannot replace.
+   *
+   * The sentinel is deliberately NOT the package's own version: while package.json
+   * says 1.0.0, asserting package.json#version passes just as happily against a
+   * hard-coded '1.0.0'. Driving the real route with a value the source cannot
+   * contain is what makes the assertion mean something.
+   */
+  it('reports the configured version, not a literal', async () => {
+    setEnv('SERVER_VERSION', '9.8.7-sentinel');
+    const appConfig = ConfigManager.getInstance().reload();
+    const { url } = await startApp(
+      { bodyLimitBytes: DEFAULT_HTTP_BODY_LIMIT_BYTES, authToken: TEST_AUTH_TOKEN },
+      appConfig
+    );
+
+    const body = (await (await fetch(`${url}/`)).json()) as { version?: string };
+
+    expect(body.version).toBe('9.8.7-sentinel');
+
+    restoreEnv('SERVER_VERSION');
+    config = ConfigManager.getInstance().reload();
+  });
+});
+
 describe('HTTP transport startup', () => {
   it('fails closed when MCP_AUTH_TOKEN is unset', () => {
     // No app is built at all, so "unset" can never degrade into "no auth required".

@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import pkg from '../../package.json' with { type: 'json' };
+import { BookStackClient } from '../../src/api/client';
 import { ConfigManager } from '../../src/config/manager';
 import { ServerInfoTools } from '../../src/tools/server-info';
 import type { MCPResource, MCPServerInfo, MCPTool } from '../../src/types';
+import { ErrorHandler } from '../../src/utils/errors';
 import { Logger } from '../../src/utils/logger';
 import { VERSION } from '../../src/version';
 
@@ -56,17 +58,23 @@ describe('version propagation', () => {
   });
 
   /**
-   * The test above cannot see a regression today: package.json says 1.0.0, so a
-   * literal '1.0.0' equals the real version by coincidence and every assertion
-   * still passes. (Verified: restoring the literal default leaves the suite green.)
-   * It only starts biting at 2.0.0 — i.e. one release too late, in an artifact npm
-   * will not let us replace.
+   * A source scan is a check on ONE SPELLING of the bug, never a substitute for
+   * running the consumers — a template literal, a prefixed or computed value, or a
+   * constant that quietly stopped honouring SERVER_VERSION all sail past it. An
+   * earlier revision of this file leaned on exactly that and was demonstrably
+   * false-green: both reads in src/server.ts could be replaced with `1.0.0` and
+   * this file stayed green.
    *
-   * So assert the invariant that does not depend on today's version: src/ contains
-   * no version literal at all. version.ts is the one place a version may appear,
-   * and it reads package.json.
+   * The behaviour is covered where it happens — MCP initialize in
+   * tests/transport/stdio.test.ts, GET / in tests/transport/http.test.ts,
+   * bookstack_server_info and the outbound User-Agent below — each driven with a
+   * sentinel the source cannot contain.
+   *
+   * This stays only for what behaviour cannot reach today: while package.json says
+   * 1.0.0, no runtime assertion can tell "reads package.json" from "hard-codes the
+   * same string". Backticks included, since that is the spelling that got through.
    */
-  it('has no version literal anywhere in src/ except version.ts', async () => {
+  it('has no version literal anywhere in src/ except version.ts (spelling check only)', async () => {
     const { Glob } = await import('bun');
     const offenders: string[] = [];
 
@@ -74,11 +82,27 @@ describe('version propagation', () => {
       if (file === 'src/version.ts') continue;
       const text = await Bun.file(file).text();
       text.split('\n').forEach((line, i) => {
-        if (/['"]\d+\.\d+\.\d+['"]/.test(line)) offenders.push(`${file}:${i + 1}: ${line.trim()}`);
+        if (/['"`]\d+\.\d+\.\d+['"`]/.test(line))
+          offenders.push(`${file}:${i + 1}: ${line.trim()}`);
       });
     }
 
     expect(offenders).toEqual([]);
+  });
+
+  it('sends the configured version as its outbound User-Agent', () => {
+    process.env.SERVER_VERSION = OVERRIDE;
+    const cfg = ConfigManager.getInstance().reload();
+
+    // BookStackClient builds this header once, at construction, from the same
+    // config the protocol surfaces use (src/api/client.ts). It is how the BookStack
+    // operator identifies which server version is calling them.
+    const logger = Logger.getInstance();
+    const client = new BookStackClient(cfg, logger, new ErrorHandler(logger));
+    const ua = (client as unknown as { client: { defaults: { headers: Record<string, string> } } })
+      .client.defaults.headers['User-Agent'];
+
+    expect(ua).toBe(`${cfg.server.name}/${OVERRIDE}`);
   });
 
   it('reports the configured version from bookstack_server_info, not a literal', async () => {
