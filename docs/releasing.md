@@ -522,20 +522,33 @@ STATUS="$(git status --porcelain)"
 [ -z "$STATUS" ] || { echo "clone is dirty -- stop" >&2; exit 1; }
 
 bun install --frozen-lockfile
-npm pack --dry-run                 # this is exactly what will ship
+
+# PIN npm FIRST — before the pack preview, not after. `npm pack` is CLI behaviour
+# and its rules have changed across majors, so a preview produced by whatever npm
+# happens to be installed is not "what will ship" if a different npm does the
+# packing. Pin, prove the pin took, and only then show the operator the files.
+#
+# The pin matters on its own too: the workflow publishes with 11.6.2, whose
+# implicit-`latest` protection refuses to demote the tag below the highest stable
+# version. An unpinned local CLI (npm 10) has no such guard.
+#
+# `--registry` on the install as well: without it a configured private registry
+# supplies the CLI itself, however carefully every later call is pinned. And
+# ASSERT the version — `npm --version` exits 0 for every npm, so printing it
+# proves nothing: a prefix outside PATH, a shell hash, or a wrapper can leave the
+# old binary resolving while the install "succeeded".
+npm install -g npm@11.6.2 --registry="$REG"
+hash -r 2>/dev/null || true
+NPM_VERSION="$(npm --version)"
+[ "$NPM_VERSION" = "11.6.2" ] || {
+  echo "npm is $NPM_VERSION, not the reviewed 11.6.2 — the pin did not take" >&2; exit 1; }
+
+npm pack --dry-run                 # packed by the same npm that will publish
 
 # The dry run above is only a gate if something stops. Nothing else in this
 # script can tell an unexpected file from an expected one.
 read -r -p "Publish $TAG from $HEAD_SHA? Type the version to confirm: " OK
 [ "$OK" = "$VERSION" ] || { echo "aborted" >&2; exit 1; }
-
-# PIN npm. The workflow publishes with 11.6.2, whose implicit-`latest` protection
-# refuses to demote the tag below the highest stable version. An unpinned local
-# CLI (npm 10 here) has no such guard and will happily apply `latest` to an older
-# version. The guards below do not rely on it, but there is no reason to publish
-# from a different client than the reviewed one.
-npm install -g npm@11.6.2
-npm --version
 
 # The published version SET, not the `latest` tag. `latest` is mutable and may
 # already be wrong — reading it cannot tell you what the greatest release is.
@@ -567,7 +580,15 @@ if [ "$MODE" = forward ]; then
   fi
   npm publish --access public --registry="$REG" --tag latest
 else
-  # Backfill: `latest` must not move. Capture it to compare byte-for-byte after.
+  # Backfill: prove this actually IS one. Without this the mode is a way to
+  # publish the NEWEST version while leaving `latest` behind — the script exits 0,
+  # and `npm install` quietly keeps serving the older release.
+  if [ -z "$GREATEST" ] || [ "$GREATEST" = "$VERSION" ] \
+     || [ "$(greatest_stable "[\"$GREATEST\",\"$VERSION\"]")" = "$VERSION" ]; then
+    echo "Nothing newer than $VERSION is published (greatest: ${GREATEST:-none})." >&2
+    echo "This is a forward release, not a backfill. Re-run with MODE=forward." >&2
+    exit 1
+  fi
   LATEST_BEFORE="$(npm view "$PKG" dist-tags.latest --registry="$REG")"
   npm publish --access public --registry="$REG" --tag backfill
 fi
@@ -593,9 +614,20 @@ if [ "$MODE" = forward ]; then
 else
   BACKFILL_TAG="$(npm view "$PKG" dist-tags.backfill --registry="$REG")"
   [ "$BACKFILL_TAG" = "$VERSION" ] || { echo "backfill tag is $BACKFILL_TAG, not $VERSION" >&2; exit 1; }
-  [ "$NOW_LATEST" = "$LATEST_BEFORE" ] || {
-    echo "backfill MOVED latest: $LATEST_BEFORE -> $NOW_LATEST. Repair it:" >&2
+
+  # What must hold: this publish did not take `latest`, and `latest` did not go
+  # backwards. NOT "latest is byte-for-byte what it was" — a forward release may
+  # legitimately land while this runs, and demanding the old value would report a
+  # correct 2.1.0 -> 2.2.0 advance as damage and tell the operator to reset
+  # `latest` to 2.1.0, undoing someone else's release.
+  [ "$NOW_LATEST" != "$VERSION" ] || {
+    echo "the backfill took latest ($VERSION). Repair it:" >&2
     echo "  npm dist-tag add $PKG@$LATEST_BEFORE latest" >&2
+    exit 1
+  }
+  [ "$(greatest_stable "[\"$LATEST_BEFORE\",\"$NOW_LATEST\"]")" = "$NOW_LATEST" ] || {
+    echo "latest went backwards during this run: $LATEST_BEFORE -> $NOW_LATEST." >&2
+    echo "Investigate before repairing — something else published concurrently." >&2
     exit 1
   }
 fi
