@@ -71,34 +71,56 @@ JSON
 
 Ensure no bypass actor can push the publishing workflow directly.
 
-> **Defence in depth (recommended).** Put the `publish` job behind a protected
-> GitHub [environment][envs] restricted to `main` with a required reviewer, and
-> name that environment in npm's trusted publisher. That is an **external**
-> boundary: a modified workflow file cannot remove it, whereas *any* check written
-> inside the workflow can be deleted by the copy that runs it.
+**This does not stop a branch from publishing** — see #2. Protecting `main` only
+makes the *merge* real.
 
-### 2. Protect the release tags
+### 2. Create the `npm-publish` environment — this is the actual boundary
 
-`main`'s ruleset does **not** cover tags — they are a separate namespace. That
-matters because release-please does **not** reject a tag that already exists, and
-GitHub's Create Release **ignores `target_commitish` when the tag is already
-there**. So anyone who can push `refs/tags/v*` can pre-place a tag; the merge of a
-legitimate Release PR then creates a Release *for their tag*.
+Everything else in this pipeline is a check *inside* a file. `on: push` runs the
+workflow **from the ref that was pushed**, so anyone who can push a branch can push
+a copy of `release-please.yml` with the branch filter changed, the guards deleted,
+and a bare `npm publish` — and it runs. npm's trusted publisher binds
+**repository + workflow filename**, *not* the ref, so that copy mints the same OIDC
+identity. No merge, no tag, no Release required. Removing `workflow_dispatch` did
+not close this; it closed one door into the same room.
 
-The workflow refuses to publish that (it binds the worktree to the Release PR's own
-merge commit), but defence in depth belongs at the boundary, not only in a file the
-run could be asked to execute a modified copy of:
+The **environment claim** is the one npm-validated field a branch copy cannot
+satisfy:
 
 ```bash
-gh api repos/pnocera/bookstack-mcp-server/rulesets --method POST --input - <<'JSON'
-{ "name": "release-tags", "target": "tag", "enforcement": "active",
-  "conditions": { "ref_name": { "include": ["refs/tags/v*"], "exclude": [] } },
-  "rules": [ { "type": "creation" }, { "type": "update" }, { "type": "deletion" } ] }
+gh api repos/pnocera/bookstack-mcp-server/environments/npm-publish --method PUT \
+  --input - <<'JSON'
+{ "deployment_branch_policy": { "protected_branches": false, "custom_branch_policies": true } }
 JSON
+gh api repos/pnocera/bookstack-mcp-server/environments/npm-publish/deployment-branch-policies \
+  --method POST -f name='main' -f type='branch'
 ```
 
-Add release-please's identity as the **only** bypass actor, so the automation can
-still tag and nobody else can.
+Then name it on the trusted publisher (#4). The two halves lock together:
+
+| A branch copy that… | Fails because |
+| --- | --- |
+| keeps `environment: npm-publish` | **GitHub** refuses the environment to a run on any ref but `main` — no OIDC token is minted at all. |
+| deletes the `environment:` line | **npm** rejects the token: its trusted publisher requires that exact environment claim. |
+
+Optionally add a required reviewer to the environment — that also gives you a
+human abort window after the Release PR merges, which nothing else here provides.
+
+> **Tag protection is *not* on this list, deliberately.** `main`'s ruleset does not
+> cover tags, and a pre-placed `refs/tags/v*` is a real nuisance: release-please
+> does not reject an existing tag, and GitHub's Create Release **ignores
+> `target_commitish` when the tag exists**, so a hostile tag gets a public Release
+> and then strands the real release behind a red publish job. The workflow refuses
+> to *publish* it (it binds the worktree to the Release PR's own merge commit), so
+> this is availability, not integrity.
+>
+> A tag ruleset does not currently fix it: release-please authenticates with
+> `GITHUB_TOKEN`, which is the **GitHub Actions app** — there is no
+> "release-please identity" to grant a bypass to. Naming the Actions app as the
+> bypass actor would let *any* workflow requesting `contents: write` — including a
+> branch copy — bypass the rule, which is worse than not having it. Closing this
+> properly means giving release-please a dedicated GitHub App and making that App
+> the sole bypass actor. Tracked, not done.
 
 ### 3. Let GitHub Actions open the Release PR
 
@@ -132,7 +154,10 @@ all.
 > - **Allowed action: `npm publish`** — required for any trusted publisher created
 >   after 2026-05-20. Omitting it leaves authorization incomplete and the first
 >   publish fails *after* the irreversible tag.
-> - environment: set it if you took the defence-in-depth option above
+> - **environment: `npm-publish`** — **not optional.** This is the half of #2 that
+>   lives on npm's side. Leave it blank and the publisher accepts a token from a
+>   run on *any* branch of this repository, which is exactly the hole #2 exists to
+>   close. It must match `environment:` in the workflow **exactly**.
 
 **These fail at different points** — troubleshoot the right one:
 
@@ -255,6 +280,21 @@ executes. **Never "Re-run all jobs"** — `release_created` is only true in the 
 that *creates* the Release, so a full re-run finds nothing pending, **skips publish
 and passes green** while npm stays behind.
 
+**If the `Create release` job failed at the classifier** — before any tag exists,
+e.g. it could not resolve the merged PR for this commit, or found a Release PR
+carrying no `autorelease` label. This is the one case where the rule above inverts:
+
+```bash
+gh run rerun <RUN_ID>                # re-run ALL jobs — nothing irreversible happened
+```
+
+The classifier is deliberately fail-loud, because only *this* run may release
+*this* Release PR: a later push's run will not do it, so silently treating an
+unresolved lookup as "ordinary push" would leave the merged Release PR unreleased
+with a green tick. Re-running the whole run re-reads the association once GitHub
+has settled. Re-running only the failed job works too; the distinction that matters
+is that **before the tag, a full re-run is safe — after it, it is the trap above.**
+
 **If `release-please` itself failed *after* creating the tag** — a rarer split
 state, e.g. an API error during its PR comment/label work. `publish` is skipped
 because its required job failed. **The pipeline cannot recover this by itself**, by
@@ -294,7 +334,7 @@ token that would let a branch copy publish.
 Recover with one of:
 
 - The tag-pinned local publish below, accepting **no provenance**; or
-- The protected-environment OIDC reconciliation described in prerequisite #1 —
+- The protected-environment OIDC reconciliation described in prerequisite #2 —
   verify the tag and its merged-PR ancestry, publish only if that exact version is
   absent, and fail on any ambiguous registry response. That is the durable fix: an
   external boundary a workflow copy cannot remove.
@@ -495,5 +535,6 @@ never replaced or reused.
 - **After npm accepts the version:** you cannot take it back. Publish a corrective
   version and `npm deprecate` the bad one.
 
-If you want a window to abort after merge, use the protected environment from
-prerequisite #1 — that is a real gate. A Git revert is not.
+If you want a window to abort after merge, add a required reviewer to the
+`npm-publish` environment from prerequisite #2 — that is a real gate. A Git revert
+is not.
