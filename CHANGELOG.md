@@ -5,7 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.0](https://github.com/pnocera/bookstack-mcp-server/releases/tag/v2.0.0) (2026-07-17)
+
+### ⚠ BREAKING CHANGES
+
+* **Bun is now required.** Node.js is no longer supported: the `bin` starts with
+  `#!/usr/bin/env bun` and the package ships TypeScript source rather than a bundle.
 
 This release modernizes the toolchain around **Bun**, drops the Node.js runtime,
 and closes a number of correctness and security defects.
@@ -226,7 +231,16 @@ and closes a number of correctness and security defects.
 
 [Keep a Changelog]: https://keepachangelog.com/en/1.1.0/
 [Biome]: https://biomejs.dev/
-<!-- No v1.0.0 tag exists: 1.0.0 was published to npm before this repo tagged
-     releases, so compare/v1.0.0...HEAD 404s. v2.0.0 is the first tag; from then
-     on these are ordinary compare links. -->
-[Unreleased]: https://github.com/pnocera/bookstack-mcp-server/commits/main
+
+### Commits
+
+* migrate to Bun, fix upload/auth/logging defects, add live test suite ([4476d87](https://github.com/pnocera/bookstack-mcp-server/commit/4476d8786e8e5b71085cea644b051d3d966bf0f3))
+* automate versioning and publishing with release-please + OIDC ([a4a3ca3](https://github.com/pnocera/bookstack-mcp-server/commit/a4a3ca3ee26f70f6d64b3fb55319ac639368b422))
+
+## [Unreleased]
+
+<!-- v2.0.0 is this repo's FIRST tag: 1.0.0 was published to npm before releases
+     were tagged here, so no v1.0.0 ref exists and compare/v1.0.0... 404s. The
+     2.0.0 heading points at the release itself; from 2.1.0 on these are ordinary
+     compare links and release-please generates them correctly. -->
+[Unreleased]: https://github.com/pnocera/bookstack-mcp-server/compare/v2.0.0...HEAD
