@@ -570,11 +570,17 @@ read -r -p "Read that. Is any other release in flight right now? Type 'no' to co
 #     prints solely what has been explicitly set, can tell them apart;
 #   * force=true, which skips the check outright.
 node -e 'if (require("./package.json").publishConfig?.tag) { console.error("package.json sets publishConfig.tag"); process.exit(1); }'
-! npm config list | grep -qE '^tag *=' || {
+# Standalone assignment, so a FAILED `npm config list` aborts here under set -e.
+# Piped straight into grep (`! npm config list | grep -q ...`) a failure produces
+# no output, grep matches nothing, and the guard concludes "no configured tag" —
+# proving the opposite of what it was asked, from a command that did not run.
+NPM_CONFIG_DUMP="$(npm config list)"
+! grep -qE '^tag *=' <<<"$NPM_CONFIG_DUMP" || {
   echo "a tag is configured (.npmrc or NPM_CONFIG_TAG). It reads the same as npm's" >&2
   echo "default but disables npm's greater-version protection. Unset it and re-run." >&2; exit 1; }
-[ "$(npm config get force)" = "false" ] || {
-  echo "force is enabled; npm would skip its greater-version check. Unset it." >&2; exit 1; }
+NPM_FORCE="$(npm config get force)"
+[ "$NPM_FORCE" = "false" ] || {
+  echo "force is $NPM_FORCE; npm would skip its greater-version check. Unset it." >&2; exit 1; }
 
 # Bare, deliberately: the IMPLICIT default tag is what arms that check. Passing
 # `--tag latest` explicitly disables the very thing the pin above exists for.
