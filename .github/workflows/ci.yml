@@ -5,20 +5,62 @@ on:
     branches: [main]
   pull_request:
 
+env:
+  # Single source of truth for the Bun this repo is validated on. The Dockerfile's
+  # BUN_IMAGE pin must name this same version: the docker job's smoke suite compares
+  # the built image's `bun --version` against the Bun running the tests, so bumping
+  # one without the other fails rather than silently shipping an unvalidated runtime.
+  BUN_VERSION: 1.3.14
+
 jobs:
-  build:
+  quality:
+    name: Typecheck, test, lint
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        # Matches the ">=18.0.0" engines constraint in package.json.
-        node-version: ['18.x', '20.x', '22.x']
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: ${{ matrix.node-version }}
-          cache: npm
-      - run: npm ci
-      - run: npm run build
-      - run: npm test
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Typecheck
+        run: bunx tsc --noEmit
+      # The live integration suites need a real BookStack (docker compose) and are
+      # deliberately not run here. RUN_INTEGRATION=0 skips them explicitly, rather
+      # than relying on the reachability probe timing out on every run.
+      #
+      # What covers the gap without a live BookStack: tests/transport. Those drive the
+      # real Express app and the real stdio entry point against an in-process BookStack
+      # stub, so tool registration, tools/list, a read-only tools/call and stdout purity
+      # are all exercised here. The image itself is smoked in the docker job below.
+      # RUN_DOCKER_SMOKE is left unset, so this job needs no image and stays fast.
+      - name: Test
+        run: bun test
+        env:
+          RUN_INTEGRATION: '0'
+      - name: Lint
+        run: bunx biome check .
+
+  docker:
+    name: Docker build and smoke
+    runs-on: ubuntu-latest
+    # Independent of `quality` on purpose: the two report in parallel, so a lint failure
+    # and a broken image surface on the same run instead of one hiding the other.
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: Build image
+        run: docker build -t bookstack-mcp-server:ci .
+      # A build only proves the layers assemble. These tests start the image with dummy
+      # credentials and check what a build cannot: that it refuses to start without
+      # MCP_AUTH_TOKEN, that it serves / and tools/list, that it enforces bearer auth,
+      # that /health reports unhealthy (503) against an unreachable BookStack, and that
+      # it runs the Bun version pinned above. No BookStack is involved.
+      - name: Smoke the image
+        run: bun test tests/transport/docker-smoke.test.ts
+        env:
+          RUN_DOCKER_SMOKE: '1'
+          DOCKER_SMOKE_IMAGE: bookstack-mcp-server:ci
+          RUN_INTEGRATION: '0'

@@ -29,13 +29,12 @@ The BookStack MCP Server provides comprehensive access to the BookStack knowledg
 
 ### Key Features
 
-- **Complete API Coverage**: 73 tools across 14 endpoint categories
+- **API Coverage**: 56 tools and 11 resources across 13 categories, covering the supported subset of the BookStack API (comments, imports, tag listings, image-gallery `data` endpoints and ZIP export are not exposed)
 - **Type Safety**: Full TypeScript interfaces for all operations
 - **Robust Error Handling**: Comprehensive error mapping and recovery guidance
 - **Rate Limiting**: Token bucket algorithm with configurable limits
-- **Validation**: Zod-based parameter validation with strict mode support
+- **Validation**: Zod-based parameter validation, strict by default (`VALIDATION_STRICT_MODE=true`)
 - **Retry Logic**: Automatic retry with exponential backoff
-- **Batch Operations**: Support for efficient bulk operations
 - **Export Capabilities**: Multi-format export (HTML, PDF, Markdown, Plain Text)
 
 ### Architecture
@@ -53,6 +52,15 @@ BookStack Instance → API Token → MCP Server → Claude/LLM
 BOOKSTACK_BASE_URL=https://your-bookstack.com/api
 BOOKSTACK_API_TOKEN=your_api_token_here
 
+# Required for the HTTP transport (the default), ignored by stdio: the inbound
+# bearer secret callers must present on POST /message. Distinct from
+# BOOKSTACK_API_TOKEN above. Without it the HTTP transport refuses to start.
+# Generate with: openssl rand -hex 32
+MCP_AUTH_TOKEN=
+
+# Optional - Transport
+MCP_TRANSPORT=http    # http (default) | stdio
+
 # Optional - Server Configuration
 SERVER_NAME=bookstack-mcp-server
 SERVER_VERSION=1.0.0
@@ -64,17 +72,19 @@ RATE_LIMIT_BURST_LIMIT=10
 
 # Optional - Validation
 VALIDATION_ENABLED=true
-VALIDATION_STRICT_MODE=false
+VALIDATION_STRICT_MODE=true   # default: true (reject invalid params at the boundary)
 
 # Optional - Logging
-LOG_LEVEL=info
-LOG_FORMAT=pretty
+LOG_LEVEL=info      # error | warn | info | debug
+LOG_FORMAT=pretty   # pretty | json
 
-# Optional - Security
-CORS_ENABLED=true
-CORS_ORIGIN=*
-HELMET_ENABLED=true
+# Optional - Development
+NODE_ENV=development  # development | production | test
+DEBUG=false
 ```
+
+> The HTTP transport applies no CORS headers and no Helmet hardening. Put it
+> behind a reverse proxy if you need either.
 
 ### API Token Requirements
 
@@ -111,11 +121,18 @@ interface Config {
     strictMode: boolean;   // Strict validation mode
   };
   logging: {
-    level: 'error' | 'warn' | 'info' | 'debug';
-    format: 'json' | 'pretty';
+    level: 'error' | 'warn' | 'info' | 'debug';  // Severity threshold
+    format: 'json' | 'pretty';                   // Output shape
+  };
+  development: {
+    nodeEnv: 'development' | 'production' | 'test';
+    debug: boolean;
   };
 }
 ```
+
+All log output — every level, both formats — goes to **stderr**. The stdio
+transport carries the MCP protocol on stdout, so logging there would corrupt it.
 
 ## Rate Limiting & Error Handling
 
@@ -144,12 +161,24 @@ Comprehensive error mapping from HTTP status codes to MCP errors:
 
 ### Retry Policy
 
-Automatic retry with exponential backoff for transient errors:
+Transient failures are retried automatically:
 
 - **Retryable Status Codes**: 429, 500, 502, 503, 504
-- **Max Retries**: 3
-- **Backoff Strategy**: Exponential (1s, 2s, 4s)
-- **Timeout**: 30 seconds per request
+- **Max Attempts**: 4 (the initial request plus up to 3 retries)
+- **Which requests are replayed**: a `429` is retried for **any** method — BookStack
+  rejects a throttled request before it executes, so replaying it is safe. The
+  `5xx` codes are only retried for **`GET`, `HEAD` and `OPTIONS`**, because a
+  `5xx` on a write may have partially applied.
+- **Backoff**: a server-directed wait wins when present — `Retry-After`, else
+  `X-RateLimit-Reset`. Otherwise exponential from 500ms, doubling to an 8s cap,
+  with up to 25% jitter.
+- **Total wait budget**: 30 seconds across all retries. A wait that would exceed
+  the budget is not taken — the error surfaces immediately instead.
+- **Timeout**: 30 seconds per request (`BOOKSTACK_TIMEOUT`).
+
+BookStack rate-limits its API **per user** (`API_REQUESTS_PER_MIN`, default 180),
+returning `429` with `X-RateLimit-Limit` / `X-RateLimit-Remaining` headers. The
+retry behaviour above is what absorbs that limit.
 
 ## API Endpoints
 
@@ -697,19 +726,31 @@ interface SearchResult {
 
 **Advanced Search Syntax:**
 - `"exact phrase"` - Exact phrase matching
-- `name:searchterm` - Field-specific search
-- `[book]` - Entity type filters
-- `tag:value` - Tag-based search
-- Boolean operators: AND, OR, NOT
+- `{in_name:text}` / `{in_body:text}` - Field-specific search
+- `{type:page}` - Entity type filter; combine types with `|`
+- `[tag]` / `[tag=value]` - Tag-based search
+- `-"phrase"` / `-[tag]` / `-{filter}` - Negation (a bare term cannot be negated)
 
 **Examples:**
 ```
-"API documentation"           // Exact phrase
-name:authentication          // Search in names only
-[page] authentication        // Pages containing authentication
-tag:category:api             // Content tagged as category:api
-authentication AND security  // Boolean search
+"API documentation"                  // Exact phrase
+{in_name:authentication}             // Search in names only
+authentication {type:page}           // Pages containing authentication
+{type:page|chapter} database         // Pages OR chapters mentioning database
+[category=api]                       // Content tagged category=api
+[category]                           // Content carrying a "category" tag at all
+{type:page} -[deprecated]            // Pages not tagged deprecated
+{created_by:me} {updated_after:2026-01-01}
 ```
+
+> ⚠️ **Unrecognised syntax fails open.** BookStack silently discards a `{filter:...}`
+> term it does not know rather than rejecting it, so a typo widens the query to match
+> everything instead of erroring. Three specific traps:
+> - Entity type is `{type:page}` — `[page]` is *tag* syntax and looks for a tag named "page".
+> - Tags are `[name=value]` — `tag:name=value` and `{tag:name=value}` are both wrong.
+> - There are **no boolean `AND` / `OR` / `NOT` operators**. Terms are combined
+>   implicitly, `|` unions types inside `{type:...}`, and `-` negates. A query like
+>   `authentication AND security` searches for the literal word "AND".
 
 ### Recycle Bin API
 
@@ -717,26 +758,30 @@ Manage deleted content restoration.
 
 #### List Deleted Items
 ```typescript
-// Tool: bookstack_recycle_bin_list
+// Tool: bookstack_recyclebin_list
 interface RecycleBinItem {
   id: number;             // Deletion ID
-  deleted_at: string;     // Deletion timestamp
-  deletable_type: string; // Original entity type
+  created_at: string;     // When the item was deleted
+  updated_at: string;     // When the deletion record last changed
+  deletable_type: string; // Original entity type ('page', 'book', 'chapter', ...)
   deletable_id: number;   // Original entity ID
   deleted_by: number;     // User who deleted
-  deletable: any;         // Original entity data
+  deletable: unknown;     // Original entity data; shape varies by deletable_type
 }
 ```
 
+> Note the deletion timestamp is `created_at` (the creation time of the
+> *deletion record*). The endpoint returns no `deleted_at` field.
+
 #### Restore Item
 ```typescript
-// Tool: bookstack_recycle_bin_restore
+// Tool: bookstack_recyclebin_restore
 // Restores item to original location
 ```
 
 #### Permanently Delete
 ```typescript
-// Tool: bookstack_recycle_bin_delete_permanently
+// Tool: bookstack_recyclebin_delete_permanently
 // Cannot be undone
 ```
 
@@ -787,29 +832,44 @@ System activity tracking.
 ```typescript
 // Tool: bookstack_audit_log_list
 interface AuditLogListParams extends PaginationParams {
+  // sort: '-created_at' (default) | 'created_at' | '-id' | 'id'
+  //     | '-type' | 'type' | '-user_id' | 'user_id'
   filter?: {
-    event?: string;         // Event type filter
-    user_id?: number;       // User filter
-    entity_type?: string;   // Entity type filter
-    entity_id?: number;     // Specific entity filter
-    date_from?: string;     // Date range start (YYYY-MM-DD)
-    date_to?: string;       // Date range end (YYYY-MM-DD)
+    type?: string;          // Exact event name, e.g. 'page_create'
+    user_id?: number;       // Acting user
+    loggable_type?: string; // Affected item type: 'page' | 'book' | 'chapter' | 'bookshelf'
+    loggable_id?: number;   // Affected item id
+    date_from?: string;     // '2026-07-16' or '2026-07-16 09:20:00'
+    date_to?: string;       // As above; a bare date resolves to 00:00:00 that day
   };
 }
 
 interface AuditLogEntry {
   id: number;
-  type: string;           // Event type (e.g., 'page_create')
-  detail: string;         // Event description
-  user_id: number;        // User who performed action
-  entity_type?: string;   // Affected entity type
-  entity_id?: number;     // Affected entity ID
-  ip: string;             // IP address
-  created_at: string;     // Event timestamp
-  user: User;             // User details
-  entity?: any;           // Entity details if available
+  type: string;            // Event type (e.g., 'page_create')
+  detail: string;          // Event description
+  user_id: number;         // User who performed action
+  loggable_type?: string;  // Affected item type; null for events with no content item
+  loggable_id?: number;    // Affected item id; null for events with no content item
+  ip: string;              // IP address
+  created_at: string;      // Event timestamp
+  user: User;              // User details
 }
 ```
+
+> ⚠️ **The filters are `type` / `loggable_type` / `loggable_id`** — earlier versions of
+> this document listed `event` / `entity_type` / `entity_id`. Those were removed because
+> BookStack **ignores** them: an unrecognised filter is silently dropped rather than
+> rejected, so a query using them returns a broad **unfiltered** log that looks like a
+> successful result.
+>
+> Every filter is an **exact match** — no partial or wildcard matching. `type` must be
+> the whole event name, so `'page'` matches nothing while `'page_update'` matches.
+> `loggable_type` is only recorded for BookStack's core content types; logins and role
+> changes carry `null` and can never match it.
+>
+> Listing requires a token whose user can manage **both** users and system settings.
+> `count` accepts 1-500 and a larger value is **rejected**, not clamped.
 
 ### System API
 
@@ -1097,23 +1157,28 @@ await bookstack_permissions_update('book', 1, {
 ### Content Maintenance
 
 ```typescript
-// Audit recent changes
+// Audit recent changes to pages
 const recentChanges = await bookstack_audit_log_list({
   filter: {
-    date_from: '2024-01-01',
-    entity_type: 'page'
+    date_from: '2026-01-01',
+    loggable_type: 'page'   // NOT entity_type — BookStack ignores unknown filters
   },
   count: 100
 });
 
 // Check recycle bin
-const deletedItems = await bookstack_recycle_bin_list();
+const deletedItems = await bookstack_recyclebin_list();
 
-// Restore accidentally deleted page
+// Restore an accidentally deleted item.
+// `id` is the recycle bin ENTRY's id (deletedItems.data[n].id), not the deleted
+// page's own id — that one is reported separately as `deletable_id`.
 if (deletedItems.data.length > 0) {
-  await bookstack_recycle_bin_restore({
-    deletion_id: deletedItems.data[0].id
+  const { restore_count } = await bookstack_recyclebin_restore({
+    id: deletedItems.data[0].id
   });
+  // Restoring a book also restores the chapters and pages deleted with it,
+  // so restore_count is routinely greater than 1.
+  console.log(`Restored ${restore_count} item(s)`);
 }
 
 // System health check
@@ -1121,19 +1186,25 @@ const systemInfo = await bookstack_system_info();
 console.log(`BookStack version: ${systemInfo.version}`);
 ```
 
-### Bulk Operations Pattern
+### Processing Many Items
+
+There is **no batch tool and no batching layer** — every tool acts on exactly one item.
+"Bulk" work means looping and issuing one call each, so keep the loop as small as
+possible: list with a `filter` and a large `count` rather than reading everything, and
+avoid polling, since outbound calls are rate-limited.
 
 ```typescript
-// Efficient batch processing
+// One list call (count caps at 500), then one update per item that needs it
 const books = await bookstack_books_list({ count: 500 });
 
 for (const book of books.data) {
-  // Process each book
-  const fullBook = await bookstack_books_read({ id: book.id });
-  
-  // Update tags for consistency
+  // Only touch the books that actually need the tag
   if (!book.tags.some(tag => tag.name === 'status')) {
-    await bookstack_books_update(book.id, {
+    // Every tool takes a single params object with `id` inside it —
+    // there is no (id, body) two-argument form.
+    await bookstack_books_update({
+      id: book.id,
+      // `tags` REPLACES the existing set, so send the full list you want to end up with
       tags: [
         ...book.tags,
         { name: 'status', value: 'active' }
@@ -1155,7 +1226,8 @@ for (const book of books.data) {
 - Deleted items can be restored from recycle bin
 - Export formats: HTML (immediate), PDF (server-generated), Markdown, Plain Text
 - Rate limiting applies to all operations
-- Authentication is required for all endpoints
-- Validation can be strict or permissive based on configuration
+- Authentication is required for every tool
+- Validation is **strict by default** (`VALIDATION_STRICT_MODE=true`): invalid params are rejected at the boundary rather than forwarded to BookStack. Set it to `false` to log a warning and forward them instead
+- Pagination `count` is capped at 500 (100 for `bookstack_search`); above the cap the call is **rejected, not clamped**
 
 For additional help, use the `bookstack_help` tool or consult the error guides with `bookstack_error_guides`.

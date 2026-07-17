@@ -18,6 +18,7 @@ This guide provides comprehensive examples and workflows for using the BookStack
 ### Prerequisites
 
 Before using these examples, ensure you have:
+- [Bun](https://bun.sh) 1.1.0 or newer — **Node.js is not supported**
 - BookStack instance running and accessible
 - API token generated from BookStack
 - BookStack MCP Server configured and running
@@ -25,16 +26,59 @@ Before using these examples, ensure you have:
 
 ### Basic Configuration
 
+The HTTP transport (the default) needs **two** unrelated secrets, and refuses to start
+without either: `BOOKSTACK_API_TOKEN` is the outbound credential it spends on BookStack,
+and `MCP_AUTH_TOKEN` is the inbound secret callers must present to `POST /message` — which
+dispatches every tool with that outbound credential's authority. Configure both *before*
+starting:
+
 ```bash
-# Install and configure
-npm install -g bookstack-mcp-server
+# Install (Bun only — npx / npm install -g cannot run this package)
+bun add -g bookstack-mcp-server
 
 # Set up environment
 export BOOKSTACK_BASE_URL="https://your-bookstack.example.com/api"
 export BOOKSTACK_API_TOKEN="your-api-token-here"
+export MCP_AUTH_TOKEN="$(openssl rand -hex 32)"
 
-# Test connection
-bookstack-mcp-server --test-connection
+# Start the server (HTTP transport is the default; MCP_TRANSPORT=stdio for stdio)
+bookstack-mcp-server
+```
+
+The `stdio` transport has no network surface, ignores `MCP_AUTH_TOKEN`, and needs no
+inbound secret — so a stdio launch sets only the two `BOOKSTACK_*` variables.
+
+Verify it is up and can reach BookStack. The server has **no `--test-connection`
+flag** — it parses no argv at all, so any such argument is ignored and it simply
+starts. Use the HTTP health endpoint (which needs no auth) instead:
+
+```bash
+curl http://localhost:3000/health
+```
+
+```json
+{
+  "status": "healthy",
+  "checks": [
+    { "name": "bookstack_connection", "healthy": true, "message": "BookStack API connection" },
+    { "name": "tools_loaded", "healthy": true, "message": "56 tools loaded" },
+    { "name": "resources_loaded", "healthy": true, "message": "11 resources loaded" }
+  ]
+}
+```
+
+- **`503` + `"bookstack_connection": false`** — the server is up but your token is
+  wrong or `BOOKSTACK_BASE_URL` is unreachable.
+- **Connection refused** — the process is not running. A *missing*
+  `BOOKSTACK_API_TOKEN` fails config validation at startup and exits before the port
+  is bound, so there is no `/health` to answer. Check the logs (stderr) for
+  `Configuration validation failed`.
+
+Running from a clone instead of an install:
+
+```bash
+bun install
+bun run src/server.ts   # or: bun run dev  (hot reload)
 ```
 
 ## Common Use Cases
@@ -164,7 +208,7 @@ const importResults = await importDocumentation(projectBook.id, files);
 const updateApiDocs = async (apiSpec) => {
   // Find existing API documentation
   const searchResults = await tools.bookstack_search({
-    query: 'API Reference [page] tag:type=reference',
+    query: 'API Reference {type:page} [type=reference]',
     count: 50
   });
   
@@ -450,7 +494,7 @@ ${reviewer.name}
 // Check review status
 const checkReviewStatus = async (pageId) => {
   const reviewTasks = await tools.bookstack_search({
-    query: `tag:type=review_task tag:target_page=${pageId}`,
+    query: `[type=review_task] [target_page=${pageId}]`,
     count: 20
   });
   
@@ -929,7 +973,7 @@ ${report.codeChanges.map(change => `
 
 const findOrCreateSyncBook = async () => {
   const searchResults = await tools.bookstack_search({
-    query: 'tag:type=sync_reports',
+    query: '[type=sync_reports]',
     count: 1
   });
   
@@ -961,11 +1005,12 @@ const findOrCreateSyncBook = async () => {
 {
   "mcpServers": {
     "bookstack": {
-      "command": "npx",
+      "command": "bunx",
       "args": ["bookstack-mcp-server"],
       "env": {
         "BOOKSTACK_BASE_URL": "https://docs.company.com/api",
         "BOOKSTACK_API_TOKEN": "your-token-here",
+        "MCP_TRANSPORT": "stdio",
         "LOG_LEVEL": "info"
       }
     }
@@ -973,15 +1018,24 @@ const findOrCreateSyncBook = async () => {
 }
 ```
 
+Two things this config depends on:
+
+- **`bunx`, not `npx`.** The package ships TypeScript source rather than a compiled
+  bundle and its executable starts with `#!/usr/bin/env bun`, so Bun must be installed.
+- **`MCP_TRANSPORT: "stdio"`.** Stdio is opt-in: the transport defaults to `http`, and
+  an MCP client that speaks over stdin/stdout gets nothing from an HTTP server.
+
 #### Usage Examples
 
 ```javascript
 // Example 1: Research and Documentation
 // Claude can now directly access your BookStack instance
 
-// Search for existing documentation
+// Search for existing documentation.
+// {type:page} restricts to pages — [page] would be TAG syntax, looking for a tag
+// literally named "page", and BookStack would return everything instead of erroring.
 const searchResults = await tools.bookstack_search({
-  query: "authentication API [page]",
+  query: "authentication API {type:page}",
   count: 10
 });
 
@@ -1060,79 +1114,110 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     
-    - name: Setup Node.js
-      uses: actions/setup-node@v2
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v2
       with:
-        node-version: '18'
+        bun-version: latest
     
     - name: Install dependencies
-      run: |
-        npm install -g bookstack-mcp-server
-        npm install
+      run: bun install
     
     - name: Update API Documentation
-      run: |
-        node scripts/update-api-docs.js
+      run: bun run scripts/update-api-docs.ts
       env:
         BOOKSTACK_BASE_URL: ${{ secrets.BOOKSTACK_BASE_URL }}
         BOOKSTACK_API_TOKEN: ${{ secrets.BOOKSTACK_API_TOKEN }}
     
     - name: Update Changelog
-      run: |
-        node scripts/update-changelog.js
+      run: bun run scripts/update-changelog.ts
       env:
         BOOKSTACK_BASE_URL: ${{ secrets.BOOKSTACK_BASE_URL }}
         BOOKSTACK_API_TOKEN: ${{ secrets.BOOKSTACK_API_TOKEN }}
 ```
 
+There is no `setup-node` step and no `npm install`: the project is Bun-native, Bun
+runs the TypeScript entry directly, and there is no compile step or `dist/` to build.
+
 #### Documentation Update Script
 
-```javascript
-// scripts/update-api-docs.js
-const { BookStackMCPServer } = require('bookstack-mcp-server');
+The exported `BookStackMCPServer` class is **not** a client library — its only public
+methods are `connect(transport)`, `shutdown()` and `getHealth()`. It exposes no
+`search()` or `updatePage()`, so a script drives it the same way any MCP client does:
+by sending JSON-RPC to the running server's `POST /message` endpoint.
 
-const updateApiDocs = async () => {
-  const server = new BookStackMCPServer({
-    baseUrl: process.env.BOOKSTACK_BASE_URL,
-    apiToken: process.env.BOOKSTACK_API_TOKEN
+```typescript
+// scripts/update-api-docs.ts  —  run with: bun run scripts/update-api-docs.ts
+const MCP_URL = process.env.MCP_URL ?? 'http://localhost:3000/message';
+
+// The inbound secret the server was started with (MCP_AUTH_TOKEN). Resolve it once,
+// at startup, and fail fast: interpolating an unset variable would send an empty
+// bearer header and turn a misconfiguration into a puzzling 401 on every call.
+const MCP_AUTH_TOKEN = process.env.MCP_AUTH_TOKEN;
+if (!MCP_AUTH_TOKEN) {
+  throw new Error(
+    'MCP_AUTH_TOKEN is not set. POST /message requires the inbound bearer secret this ' +
+      'server was started with; export the same value here.'
+  );
+}
+
+// The Streamable HTTP transport requires BOTH the Content-Type and Accept headers.
+// POST /message also requires the inbound bearer secret configured on the server —
+// without it the request is refused with a 401. (GET / and GET /health need no auth.)
+async function callTool<T>(name: string, args: Record<string, unknown>): Promise<T> {
+  const res = await fetch(MCP_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json, text/event-stream',
+      Authorization: `Bearer ${MCP_AUTH_TOKEN}`,
+      // Optional per-request credential override; falls back to the server's env vars
+      'x-bookstack-token': process.env.BOOKSTACK_API_TOKEN ?? '',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: Date.now(),
+      method: 'tools/call',
+      params: { name, arguments: args },
+    }),
   });
-  
-  // Generate OpenAPI documentation
-  const openApiSpec = await generateOpenApiSpec();
-  
-  // Find API documentation page
-  const searchResults = await server.search({
-    query: 'API Documentation [page] tag:type=api_reference',
-    count: 1
-  });
-  
-  if (searchResults.data.length > 0) {
-    const apiPage = searchResults.data[0];
-    
-    // Generate new documentation content
-    const newContent = generateApiMarkdown(openApiSpec);
-    
-    // Update the page
-    await server.updatePage({
-      id: apiPage.id,
-      markdown: newContent,
-      tags: [
-        { name: 'type', value: 'api_reference' },
-        { name: 'last_updated', value: new Date().toISOString() },
-        { name: 'version', value: openApiSpec.version }
-      ]
-    });
-    
-    console.log('API documentation updated successfully');
-  } else {
-    console.log('API documentation page not found');
+
+  const body = await res.json();
+  if (body.error) {
+    throw new Error(`${name} failed: ${body.error.message}`);
   }
-};
+  // Tool results come back as MCP content parts; the payload is JSON in the text part.
+  return JSON.parse(body.result.content[0].text) as T;
+}
 
-updateApiDocs().catch(console.error);
+// Find the API documentation page.
+// {type:page} restricts the type and [type=api_reference] matches the tag.
+// Note: `tag:type=api_reference` would NOT work — an unrecognised {filter:...}
+// is silently discarded by BookStack and the query would match everything.
+const results = await callTool<{ data: Array<{ id: number }> }>('bookstack_search', {
+  query: 'API Documentation {type:page} [type=api_reference]',
+  count: 1,
+});
+
+if (results.data.length === 0) {
+  console.log('API documentation page not found');
+} else {
+  await callTool('bookstack_pages_update', {
+    id: results.data[0].id,
+    markdown: generateApiMarkdown(await generateOpenApiSpec()),
+    // `tags` REPLACES the existing set — send the complete list you want to keep
+    tags: [
+      { name: 'type', value: 'api_reference' },
+      { name: 'last_updated', value: new Date().toISOString() },
+    ],
+  });
+  console.log('API documentation updated successfully');
+}
 ```
+
+The server must already be running and reachable at `MCP_URL` — in CI, start it as a
+step (or a service container) before this script runs.
 
 ### Pattern 3: Multi-Environment Documentation
 
@@ -1140,81 +1225,122 @@ updateApiDocs().catch(console.error);
 
 #### Environment-Specific Configuration
 
-```javascript
-// config/environments.js
-const environments = {
+A single running server can address several BookStack instances: `POST /message`
+accepts **per-request credential overrides** via the `x-bookstack-url` and
+`x-bookstack-token` headers, each falling back to `BOOKSTACK_BASE_URL` /
+`BOOKSTACK_API_TOKEN` when omitted. So "environments" are just header sets — you do not
+need one server process per environment.
+
+```typescript
+// config/environments.ts
+export const environments = {
   development: {
-    bookstack: {
-      baseUrl: 'http://localhost:8080/api',
-      apiToken: process.env.DEV_BOOKSTACK_TOKEN
-    },
-    prefix: '[DEV]'
+    url: 'http://localhost:8080/api',
+    token: process.env.DEV_BOOKSTACK_TOKEN!,
+    prefix: '[DEV]',
   },
   staging: {
-    bookstack: {
-      baseUrl: 'https://staging-docs.company.com/api',
-      apiToken: process.env.STAGING_BOOKSTACK_TOKEN
-    },
-    prefix: '[STAGING]'
+    url: 'https://staging-docs.company.com/api',
+    token: process.env.STAGING_BOOKSTACK_TOKEN!,
+    prefix: '[STAGING]',
   },
   production: {
-    bookstack: {
-      baseUrl: 'https://docs.company.com/api',
-      apiToken: process.env.PROD_BOOKSTACK_TOKEN
-    },
-    prefix: ''
-  }
-};
-
-module.exports = environments;
+    url: 'https://docs.company.com/api',
+    token: process.env.PROD_BOOKSTACK_TOKEN!,
+    prefix: '',
+  },
+} as const;
 ```
 
 #### Cross-Environment Sync
 
-```javascript
-// scripts/sync-environments.js
-const syncEnvironments = async (sourceEnv, targetEnv) => {
-  const sourceServer = new BookStackMCPServer(environments[sourceEnv].bookstack);
-  const targetServer = new BookStackMCPServer(environments[targetEnv].bookstack);
-  
-  // Get all pages from source
-  const sourcePages = await sourceServer.listPages({
-    count: 500,
-    filter: { tag: 'sync_enabled=true' }
+```typescript
+// scripts/sync-environments.ts  —  bun run scripts/sync-environments.ts
+import { environments } from '../config/environments';
+
+type Env = keyof typeof environments;
+
+// One inbound secret guards the server itself, whichever BookStack a request targets:
+// MCP_AUTH_TOKEN authenticates the caller to POST /message, while the x-bookstack-*
+// headers below choose the outbound instance. Fail fast if it is missing.
+const MCP_AUTH_TOKEN = process.env.MCP_AUTH_TOKEN;
+if (!MCP_AUTH_TOKEN) {
+  throw new Error(
+    'MCP_AUTH_TOKEN is not set. POST /message requires the inbound bearer secret this ' +
+      'server was started with; export the same value here.'
+  );
+}
+
+// Same JSON-RPC call as above, but the target instance is chosen per request
+// by the x-bookstack-* headers rather than by a second server process.
+async function callTool<T>(env: Env, name: string, args: Record<string, unknown>): Promise<T> {
+  const { url, token } = environments[env];
+  const res = await fetch(process.env.MCP_URL ?? 'http://localhost:3000/message', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json, text/event-stream',
+      Authorization: `Bearer ${MCP_AUTH_TOKEN}`,
+      'x-bookstack-url': url,
+      'x-bookstack-token': token,
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: Date.now(),
+      method: 'tools/call',
+      params: { name, arguments: args },
+    }),
   });
-  
+
+  const body = await res.json();
+  if (body.error) throw new Error(`${name} failed: ${body.error.message}`);
+  return JSON.parse(body.result.content[0].text) as T;
+}
+
+const syncEnvironments = async (sourceEnv: Env, targetEnv: Env) => {
+  // Find pages by tag with SEARCH, not with a list filter: the page list filter
+  // accepts only book_id / chapter_id / name / created_by / draft / template. Under
+  // the shipped default (VALIDATION_STRICT_MODE=true) an unknown key like `tag` is
+  // REJECTED at the boundary — `bookstack_pages_list` with `filter: {tag: ...}`
+  // answers JSON-RPC -32602 `Validation failed` / `Unrecognized key: "tag"`. Only
+  // with strict mode disabled are the params forwarded to BookStack unchanged, which
+  // ignores the unrecognised filter and hands back EVERY page. Neither mode filters
+  // by tag, so reach for search.
+  const sourcePages = await callTool<{ data: Array<{ id: number }> }>(sourceEnv, 'bookstack_search', {
+    query: '{type:page} [sync_enabled=true]',
+    count: 100,   // bookstack_search caps count at 100, unlike the 500 of list tools
+  });
+
   for (const sourcePage of sourcePages.data) {
-    const pageDetails = await sourceServer.readPage({ id: sourcePage.id });
-    
-    // Find corresponding page in target environment
-    const targetSearch = await targetServer.search({
-      query: `name:"${pageDetails.name}" tag:source_id=${pageDetails.id}`,
-      count: 1
+    // Search returns previews only — read the page for its real content
+    const page = await callTool<{
+      id: number; name: string; markdown: string; tags: Array<{ name: string; value: string }>;
+    }>(sourceEnv, 'bookstack_pages_read', { id: sourcePage.id });
+
+    const targetSearch = await callTool<{ data: Array<{ id: number }> }>(targetEnv, 'bookstack_search', {
+      query: `{type:page} [source_id=${page.id}]`,
+      count: 1,
     });
-    
+
+    // `tags` REPLACES the whole set on write, so always send the complete list
+    const tags = [
+      ...page.tags,
+      { name: 'synced_from', value: sourceEnv },
+      { name: 'synced_at', value: new Date().toISOString() },
+    ];
+
     if (targetSearch.data.length > 0) {
-      // Update existing page
-      await targetServer.updatePage({
+      await callTool(targetEnv, 'bookstack_pages_update', {
         id: targetSearch.data[0].id,
-        markdown: pageDetails.markdown,
-        tags: [
-          ...pageDetails.tags,
-          { name: 'synced_from', value: sourceEnv },
-          { name: 'synced_at', value: new Date().toISOString() }
-        ]
+        markdown: page.markdown,
+        tags,
       });
     } else {
-      // Create new page
-      await targetServer.createPage({
-        book_id: getTargetBookId(pageDetails.book_id, targetEnv),
-        name: `${environments[targetEnv].prefix}${pageDetails.name}`,
-        markdown: pageDetails.markdown,
-        tags: [
-          ...pageDetails.tags,
-          { name: 'source_id', value: pageDetails.id.toString() },
-          { name: 'synced_from', value: sourceEnv },
-          { name: 'synced_at', value: new Date().toISOString() }
-        ]
+      await callTool(targetEnv, 'bookstack_pages_create', {
+        book_id: getTargetBookId(page.id, targetEnv),
+        name: `${environments[targetEnv].prefix}${page.name}`,
+        markdown: page.markdown,
+        tags: [...tags, { name: 'source_id', value: String(page.id) }],
       });
     }
   }
@@ -2023,7 +2149,7 @@ const setupReviewAutomation = async () => {
   const checkForReviewRequests = async () => {
     // Find pages that need review
     const pagesNeedingReview = await tools.bookstack_search({
-      query: 'tag:status=needs_review',
+      query: '[status=needs_review]',
       count: 50
     });
     
@@ -2220,7 +2346,7 @@ ${insights.contentTypes.map(type => `| ${type.name} | ${type.avgViews} | ${type.
 
   // Create or update dashboard page
   const dashboardSearch = await tools.bookstack_search({
-    query: 'Analytics Dashboard tag:type=analytics',
+    query: 'Analytics Dashboard [type=analytics]',
     count: 1
   });
   

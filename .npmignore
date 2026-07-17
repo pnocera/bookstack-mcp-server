@@ -1,22 +1,30 @@
-# Source files (only ship compiled JS)
-src/
-tsconfig.json
-*.ts
-!*.d.ts
+# NOTE: `package.json#files` is the source of truth for what gets published.
+# It is an allowlist ("src/**/*", "tsconfig.json", "README.md", ".env.example"),
+# and it wins over this file. This list only documents intent and guards against
+# an accidental addition; it must never exclude anything `files` ships.
+#
+# This package publishes its **TypeScript source** and runs on Bun — there is no
+# compiled bundle. Do NOT re-add `src/`, `tsconfig.json` or `*.ts` here: they are
+# the only runnable entrypoint.
 
 # Development files
 tests/
+scripts/
+docs/
+reviews/
+qa/
 coverage/
-.nyc_output/
 
-# Development dependencies and configs
+# Local environment — the example is published, real secrets are not
 .env
 .env.*
 !.env.example
-.eslintrc*
-.prettierrc*
-jest.config*
-nodemon.json
+
+# Tooling config (not needed by consumers)
+biome.json
+docker-compose.yml
+Dockerfile
+.dockerignore
 
 # IDE and OS files
 .vscode/
@@ -27,47 +35,28 @@ nodemon.json
 .DS_Store
 Thumbs.db
 
-# Git files
+# Git / CI
 .git/
 .gitignore
+.github/
 
 # Logs
 logs/
 *.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Runtime data
-pids/
-*.pid
-*.seed
-*.pid.lock
-
-# Coverage directory used by tools like istanbul
-coverage/
 
 # Dependency directories
 node_modules/
 
-# Optional npm cache directory
-.npm
-
 # Output of 'npm pack'
 *.tgz
 
-# Yarn Integrity file
-.yarn-integrity
-
 # Claude and development specific files
 CLAUDE.md
+.claude/
 claude-swarm.*
 ruv-swarm*
-
-# Docker files (optional - include if you want Docker support)
-Dockerfile
-.dockerignore
 
 # Misc
 *.bak
 *.tmp
+.codegraph/
