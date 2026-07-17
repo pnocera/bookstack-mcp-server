@@ -85,9 +85,34 @@ jobs:
     env:
       TAG: ${{ needs.release-please.outputs.tag_name }}
     steps:
+      # FULLY QUALIFIED, and that matters: given a bare `v2.0.0`, checkout asks
+      # `branchExists(origin/v2.0.0)` FIRST and only falls back to the tag. A
+      # branch and a tag may legally share a short name, so anyone able to push
+      # `refs/heads/v2.0.0` could hand this trusted, id-token:write job an
+      # unreviewed worktree — and the version check below would still pass, since
+      # that branch can declare the same version. `refs/tags/...` is passed
+      # through untouched and cannot be shadowed. The `main` ruleset does not
+      # protect `refs/heads/v*`, so this namespace is the only thing that does.
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
+          ref: refs/tags/${{ needs.release-please.outputs.tag_name }}
+
+      # Belt and braces on the above: prove the worktree IS the tag's commit, as
+      # the REMOTE reports it — independent of whatever local refs checkout left
+      # behind. Empty peel => fail, never "assume fine".
+      - name: Assert the worktree is the release tag
+        run: |
+          PEELED="$(git ls-remote origin "refs/tags/${TAG}^{}" | cut -f1)"
+          HEAD_SHA="$(git rev-parse HEAD)"
+          if [ -z "$PEELED" ]; then
+            echo "::error::Could not resolve refs/tags/${TAG} on the remote." >&2
+            exit 1
+          fi
+          if [ "$PEELED" != "$HEAD_SHA" ]; then
+            echo "::error::HEAD ${HEAD_SHA} is not tag ${TAG} (${PEELED})." >&2
+            exit 1
+          fi
+          echo "HEAD ${HEAD_SHA} == ${TAG}"
 
       # The tag and the code must agree. release-please derives both, so a
       # mismatch means something upstream is wrong — and publishing anyway would

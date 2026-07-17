@@ -316,9 +316,19 @@ git fetch origin main
 git merge-base --is-ancestor "$SHA" origin/main \
   || { echo "$SHA is not on main" >&2; exit 1; }
 
-# The commit must already carry the version it is about to claim.
+# The commit must already carry the version it is about to claim -- in BOTH files.
+# The manifest is release-please's record of the last RELEASED version; if the PR
+# bumped package.json but not the manifest, tag and Release still go out green
+# while main tells release-please the old version is current, and the next
+# automated run replays the wrong history.
 AT="$(git show "$SHA:package.json" | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')"
 [ "$AT" = "$VERSION" ] || { echo "package.json at $SHA is $AT, not $VERSION" >&2; exit 1; }
+
+MAN="$(git show "$SHA:.release-please-manifest.json" | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8"))["."]')"
+[ "$MAN" = "$VERSION" ] || { echo "manifest at $SHA is $MAN, not $VERSION" >&2; exit 1; }
+
+git show "$SHA:CHANGELOG.md" | grep -q "$VERSION" \
+  || { echo "CHANGELOG at $SHA has no $VERSION heading" >&2; exit 1; }
 
 echo "releasing $SHA as $TAG"
 git tag -a "$TAG" -m "$TAG" "$SHA"     # annotated, at an explicit SHA
@@ -351,26 +361,51 @@ working copy you have been using:
 set -euo pipefail
 VERSION=X.Y.Z; TAG="v$VERSION"; REPO=https://github.com/pnocera/bookstack-mcp-server.git
 
-DIR="$(mktemp -d)"
-git clone --depth 1 --branch "$TAG" "$REPO" "$DIR/pkg"   # detached at the tag, clean by construction
-cd "$DIR/pkg"
+DIR="$(mktemp -d)"; mkdir "$DIR/pkg"; cd "$DIR/pkg"
+git init -q
+git remote add origin "$REPO"
+
+# FULLY QUALIFIED refs only -- `clone --branch $TAG` would hand you a same-named
+# BRANCH if one exists (see the table below).
+git fetch -q --depth 1 origin "refs/tags/$TAG:refs/tags/$TAG"
+git fetch -q --depth 1 origin refs/heads/main:refs/remotes/origin/main
+git checkout -q --detach "refs/tags/$TAG^{commit}"
+
+# Prove it is the tag, it is on main, and it says what the tag says.
+HEAD_SHA="$(git rev-parse HEAD)"
+[ "$HEAD_SHA" = "$(git rev-parse "refs/tags/$TAG^{commit}")" ] \
+  || { echo "HEAD is not $TAG" >&2; exit 1; }
+git merge-base --is-ancestor "$HEAD_SHA" origin/main \
+  || { echo "$TAG is not on main -- it was never merged" >&2; exit 1; }
 
 AT="$(node -p 'require("./package.json").version')"
 [ "v$AT" = "$TAG" ] || { echo "package.json is $AT, tag says $TAG" >&2; exit 1; }
-[ -z "$(git status --porcelain)" ] || { echo "clone is dirty — stop" >&2; exit 1; }
+
+# Standalone assignment: if git status FAILS, set -e aborts here. Inlined as
+# `[ -z "$(git status --porcelain)" ]` a failure prints to stderr, captures an
+# empty string, and the guard PASSES.
+STATUS="$(git status --porcelain)"
+[ -z "$STATUS" ] || { echo "clone is dirty -- stop" >&2; exit 1; }
 
 bun install --frozen-lockfile
-npm pack --dry-run                 # read this: it is exactly what will ship
+npm pack --dry-run                 # this is exactly what will ship
+
+# The dry run above is only a gate if something stops. Nothing else in this
+# script can tell an unexpected file from an expected one.
+read -r -p "Publish $TAG from $HEAD_SHA? Type the version to confirm: " OK
+[ "$OK" = "$VERSION" ] || { echo "aborted" >&2; exit 1; }
+
 npm publish --access public --registry=https://registry.npmjs.org
 ```
 
-**A fresh clone, not `git checkout --detach` in your own tree.** Checking out a tag
-does **not** discard tracked edits or untracked files, and it exits 0 with them
-still present. `package.json#files` ships `src/**`, so a stray untracked file under
-`src/` — or an unrelated `README.md` edit — is packed into an immutable version
-that no longer matches the tag or the Release. `prepublishOnly`'s typecheck does not
-notice: a stray non-TypeScript file still compiles fine. An empty directory cannot
-inherit any of that.
+**Fully qualified refs, and a fresh directory — both are load-bearing:**
+
+| Instead of | Because |
+| --- | --- |
+| `git clone --branch vX.Y.Z` | Git resolves the short name against `refs/heads/` **first**. If a branch `vX.Y.Z` exists it wins over the tag, exits 0, and — if that branch declares the same version — passes every check below. Fetch `refs/tags/$TAG` explicitly and nothing can shadow it. |
+| `git checkout --detach <tag>` in your own tree | Checking out a tag does **not** discard tracked edits or untracked files; it exits 0 with them still present. `files` ships `src/**`, so a stray file under `src/` or a `README.md` edit is packed into an immutable version that no longer matches the tag. `prepublishOnly`'s typecheck does not notice — a stray non-TypeScript file still compiles. An empty directory cannot inherit any of that. |
+| `[ -z "$(git status --porcelain)" ]` | Tests captured **stdout** only. If `git status` fails (not a repo, corrupt index) it writes to stderr, the substitution is empty, and the "clean" guard passes. `set -e` does not fire, because the failure is not the test's exit status. |
+| `npm pack --dry-run` then `npm publish` | A dry run proves npm *could* build the tarball, not that a human accepted the file list. Run as a script it scrolls past and publishes. |
 
 **`npm publish --provenance` cannot work locally.** Provenance requires a
 supported cloud CI runner; an authenticated local shell cannot produce an
