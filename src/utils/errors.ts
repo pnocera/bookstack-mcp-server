@@ -2,6 +2,7 @@ import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import type { AxiosError } from 'axios';
 import type { ZodError } from 'zod';
 import type { Logger } from './logger';
+import { PageContentError, PageStaleError } from './page-content';
 
 /**
  * Loosely-typed view of the error shapes this handler inspects at runtime.
@@ -196,6 +197,31 @@ export class ErrorHandler {
 
     if (err.isAxiosError) {
       return this.handleAxiosError(error as AxiosError);
+    }
+
+    // A partial-page edit that could not be applied: the anchor was not found, or was not
+    // unique, or the named section does not exist. InvalidParams, not InternalError, because
+    // each case describes the CALLER's input. The `details` object is what makes the error
+    // actionable: it carries the available section names, the first few ambiguous matches, or
+    // the same text found with different whitespace, so a model can correct its own call.
+    // The generic branch below would report an internal fault and discard all of that.
+    // `error.message`, not `err.message`: inside these branches the narrowed class guarantees
+    // a string, while the `ErrorLike` view types it as optional.
+    if (error instanceof PageContentError) {
+      return new McpError(ErrorCode.InvalidParams, error.message, {
+        type: 'page_content_error',
+        ...error.details,
+      });
+    }
+
+    // The page moved under the caller between its read and this write. InvalidRequest, not
+    // InvalidParams: the arguments were right, the world changed. The distinction is what a
+    // client branches on - re-read and retry, rather than rewrite the anchor.
+    if (error instanceof PageStaleError) {
+      return new McpError(ErrorCode.InvalidRequest, error.message, {
+        type: 'concurrent_modification',
+        ...error.details,
+      });
     }
 
     // Handle validation errors from Zod

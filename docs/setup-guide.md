@@ -20,7 +20,7 @@
 The BookStack MCP Server provides comprehensive access to BookStack's knowledge management capabilities through the Model Context Protocol (MCP). This guide covers everything you need to set up and configure the server for optimal performance.
 
 ### Key Features
-- **56 MCP Tools** across 13 categories, covering the supported subset of the BookStack API
+- **59 MCP Tools** across 13 categories, covering the supported subset of the BookStack API
 - **11 Resources** for dynamic content retrieval
 - **Rate Limiting** with configurable limits
 - **Comprehensive Validation** using Zod schemas
@@ -678,7 +678,7 @@ curl -i http://localhost:3000/health
   "status": "healthy",
   "checks": [
     {"name": "bookstack_connection", "healthy": true, "message": "BookStack API connection"},
-    {"name": "tools_loaded", "healthy": true, "message": "56 tools loaded"},
+    {"name": "tools_loaded", "healthy": true, "message": "59 tools loaded"},
     {"name": "resources_loaded", "healthy": true, "message": "11 resources loaded"}
   ]
 }

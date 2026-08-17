@@ -37,7 +37,7 @@ three services; `mcp` is not needed to run these tests.
 | `mcp`       | built from `./Dockerfile`          | Our MCP server. **Not required** by the integration suite.             |
 
 The BookStack tag is **pinned, not `:latest`**. The whole tool contract in this repo —
-56 tools, field shapes, error codes — was verified against v26.05.2, and a floating tag
+59 tools, field shapes, error codes — was verified against v26.05.2, and a floating tag
 would silently re-point at a future release, turning an upstream change into a mystery
 failure here. Bump it deliberately in `docker-compose.yml`, then re-run the suite.
 

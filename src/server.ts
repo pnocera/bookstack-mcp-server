@@ -118,7 +118,7 @@ function splitArgumentNames(tool: MCPTool, args: unknown): { known: string[]; un
  * through the Model Context Protocol (MCP).
  *
  * Features:
- * - 56 tools across the supported subset of the BookStack API: books, chapters, pages,
+ * - 59 tools across the supported subset of the BookStack API: books, chapters, pages,
  *   shelves, users, roles, attachments, image gallery, search, recycle bin, content
  *   permissions, the audit log and system info. Not every endpoint family is exposed -
  *   comments, imports, tags, image-gallery `data` and ZIP export are not.
@@ -528,7 +528,7 @@ export class BookStackMCPServer {
  */
 export const MISSING_AUTH_TOKEN_MESSAGE =
   'MCP_AUTH_TOKEN is not set. The HTTP transport refuses to start without an inbound ' +
-  'secret, because POST /message dispatches all 56 tools - including permanent-delete, ' +
+  'secret, because POST /message dispatches all 59 tools - including permanent-delete, ' +
   'user, role and permission operations - using the configured BOOKSTACK_API_TOKEN. ' +
   'Set MCP_AUTH_TOKEN to a random secret (e.g. `openssl rand -hex 32`) and send it as ' +
   '"Authorization: Bearer <token>", or use MCP_TRANSPORT=stdio, which has no network ' +
@@ -780,7 +780,7 @@ export function createHttpApp(options: HttpAppOptions): express.Express {
    *
    * Built from the app's own config rather than re-reading the singleton, so the readiness
    * probe reports on the BookStack this app was actually configured with. Cached across
-   * requests because constructing one registers all 56 tools and 11 resources - work an
+   * requests because constructing one registers all 59 tools and 11 resources - work an
    * anonymous caller must not be able to trigger per request.
    */
   function healthServer(): BookStackMCPServer {

@@ -1128,6 +1128,13 @@ export interface MCPSchemaNode {
   minLength?: number;
   maxLength?: number;
   /**
+   * Fewest items an array may carry. Paired with a `.min(n)` on the matching zod array, the
+   * way `minLength` is paired with `z.string().min(n)`: the published schema and the runtime
+   * rule have to agree, or a client trusts a contract the server does not keep.
+   */
+  minItems?: number;
+  maxItems?: number;
+  /**
    * A regular expression the string must match, in JSON Schema's sense: UNANCHORED, so
    * the pattern must merely be found somewhere in the value unless it anchors itself.
    * That is what lets NONBLANK_PATTERN be the single character class `\S`.

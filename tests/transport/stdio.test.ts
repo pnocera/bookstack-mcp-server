@@ -298,7 +298,7 @@ describe('stdio entry point', () => {
   }, 20_000);
 
   it(
-    'completes an MCP handshake and lists all 56 tools',
+    'completes an MCP handshake and lists all 59 tools',
     async () => {
       // Proof the spawned process is a working MCP server, not merely a quiet one: a
       // process that printed nothing at all would pass a stdout-purity check by itself.
@@ -312,7 +312,7 @@ describe('stdio entry point', () => {
       const listReply = parseProtocolLine(await server.nextStdoutLine());
 
       expect(listReply.id).toBe(2);
-      expect(listReply.result?.tools).toHaveLength(56);
+      expect(listReply.result?.tools).toHaveLength(59);
       expect(listReply.result?.tools?.map((tool) => tool.name)).toContain('bookstack_books_list');
     },
     REPLY_TIMEOUT_MS + 5_000

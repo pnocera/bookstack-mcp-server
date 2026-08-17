@@ -61,7 +61,7 @@ curl http://localhost:3000/health
   "status": "healthy",
   "checks": [
     { "name": "bookstack_connection", "healthy": true, "message": "BookStack API connection" },
-    { "name": "tools_loaded", "healthy": true, "message": "56 tools loaded" },
+    { "name": "tools_loaded", "healthy": true, "message": "59 tools loaded" },
     { "name": "resources_loaded", "healthy": true, "message": "11 resources loaded" }
   ]
 }

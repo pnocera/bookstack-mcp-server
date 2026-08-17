@@ -208,6 +208,46 @@ export interface ExportRequest extends IdRequest {
   format: ExportFormat;
 }
 
+/**
+ * `bookstack_pages_read`. Every option has a schema default, so the handler reads plain
+ * values rather than re-deciding what "unset" means; only the three genuinely absent-or-not
+ * options are optional.
+ */
+export interface PageReadRequest extends IdRequest {
+  grep?: string;
+  case_sensitive: boolean;
+  context: number;
+  max_matches: number;
+  offset?: number;
+  length?: number;
+  metadata_only: boolean;
+}
+
+/** One literal replacement in a `bookstack_pages_edit` request. */
+export interface PageEditOperation {
+  old_string: string;
+  new_string: string;
+  replace_all: boolean;
+}
+
+/** `bookstack_pages_edit`: the page, the edits, and the guards around applying them. */
+export interface PageEditRequest extends IdRequest {
+  edits: PageEditOperation[];
+  dry_run: boolean;
+  expected_updated_at?: string;
+  allow_shrink: boolean;
+}
+
+/** `bookstack_pages_append`: the page, the fragment, and where it goes. */
+export interface PageAppendRequest extends IdRequest {
+  content: string;
+  position: 'start' | 'end';
+  section?: string;
+  separator?: string;
+  dry_run: boolean;
+  expected_updated_at?: string;
+}
+
 /** How the permission tools address an item: by type AND id, since ids repeat per type. */
 export interface ContentPermissionsRequest {
   content_type: ContentType;
@@ -358,6 +398,66 @@ const ValidationSchemas = {
     markdown: z.string().optional(),
     tags: tagList.optional(),
     priority: z.number().int().optional(),
+  }),
+
+  /**
+   * `bookstack_pages_read`, which takes an id plus the options that narrow what comes back.
+   *
+   * A separate schema rather than the shared `id` one because that one is `strictObject`
+   * and would reject every option here. A read with no options set behaves exactly as
+   * before, so the plain `{id}` call is unchanged.
+   */
+  pageRead: z.strictObject({
+    id: entityId,
+    grep: z.string().min(1).optional(),
+    case_sensitive: z.boolean().default(false),
+    // The upper bound is the one that matters: grep exists to avoid shipping the whole page.
+    // The lower bound only keeps the window non-empty and non-negative. A very narrow excerpt
+    // is useless but not unsafe, and `minimum: 1` is what the published schema can state
+    // without adding a fifth integer rule for one property (see
+    // tests/unit/id-schema-contract.test.ts).
+    context: z.number().int().min(1).max(2000).default(200),
+    max_matches: z.number().int().min(1).max(50).default(10),
+    offset: z.number().int().min(0).optional(),
+    length: z.number().int().min(1).optional(),
+    metadata_only: z.boolean().default(false),
+  }),
+
+  /**
+   * `bookstack_pages_edit`: literal find-and-replace against the stored page source.
+   *
+   * `old_string` is `.min(1)` because an empty anchor matches nothing meaningful and
+   * `applyEdits()` refuses it anyway - rejecting here means the caller gets told which
+   * parameter was wrong instead of a generic failure. `new_string` has no minimum: the empty
+   * string is how a caller deletes the anchored text.
+   */
+  pageEdit: z.strictObject({
+    id: entityId,
+    edits: z
+      .array(
+        z.strictObject({
+          old_string: z.string().min(1),
+          new_string: z.string(),
+          replace_all: z.boolean().default(false),
+        })
+      )
+      .min(1),
+    dry_run: z.boolean().default(false),
+    // Compared byte-for-byte against the page's current `updated_at`, so it is not parsed
+    // or reformatted here: whatever BookStack reported is what must come back.
+    expected_updated_at: z.string().min(1).optional(),
+    allow_shrink: z.boolean().default(false),
+  }),
+
+  /** `bookstack_pages_append`: insert a fragment at a page or section boundary. */
+  pageAppend: z.strictObject({
+    id: entityId,
+    content: z.string().min(1),
+    position: z.enum(['start', 'end']).default('end'),
+    section: z.string().min(1).optional(),
+    separator: z.string().optional(),
+    dry_run: z.boolean().default(false),
+    expected_updated_at: z.string().min(1).optional(),
   }),
 
   // Chapters
