@@ -801,7 +801,10 @@ export class PageTools {
           ...summary,
           ...(await this.writeAndVerify(page, source, result, {
             mustContain: options.edits
-              .filter((edit) => edit.new_string.length > 0)
+              // A later edit may have replaced text an earlier edit introduced. Require only
+              // fragments that remain in the final source, otherwise a correct chained write
+              // would be reported as unverified.
+              .filter((edit) => edit.new_string.length > 0 && result.includes(edit.new_string))
               .map((edit) => edit.new_string),
             mustNotContain: options.edits
               // When a replacement is already present in the original source, finding it after
@@ -1091,10 +1094,15 @@ export class PageTools {
     const writtenSource = selectSource(written);
     const missing = verification.mustContain.filter((fragment) => {
       const normalized = normalizeForComparison(fragment, writtenSource.writeField);
-      return (
-        normalized.length === 0 ||
-        !containsNormalized(writtenSource.source, fragment, writtenSource.writeField)
-      );
+      if (normalized.length === 0) {
+        // HTML-to-text intentionally removes markup-only fragments (`<hr>`, `<img>`, etc.).
+        // They still need a structural post-write check, otherwise a stored fragment would be
+        // reported as missing forever; collapse formatting whitespace but require the literal
+        // markup to remain present.
+        const collapseWhitespace = (value: string) => value.replace(/\s+/g, ' ').trim();
+        return !collapseWhitespace(writtenSource.source).includes(collapseWhitespace(fragment));
+      }
+      return !containsNormalized(writtenSource.source, fragment, writtenSource.writeField);
     });
     // An empty replacement deletes its old anchor. An empty normalised anchor cannot be
     // meaningfully searched for, so treat it as unverified rather than claiming success.
