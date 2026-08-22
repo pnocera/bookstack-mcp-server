@@ -5,6 +5,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0](https://github.com/pnocera/bookstack-mcp-server/compare/v2.0.0...v2.1.0) (2026-08-22)
+
+
+### Added
+
+* **pages:** partial page editing without resending whole pages ([402782f](https://github.com/pnocera/bookstack-mcp-server/commit/402782f9aa6643e4cfbb88e4bad84457ab0b5248))
+* **pages:** partial page editing without resending whole pages ([#22](https://github.com/pnocera/bookstack-mcp-server/issues/22)) ([040957e](https://github.com/pnocera/bookstack-mcp-server/commit/040957e7a90a31abb9ac7a7acee9641be7009571))
+
+
+### Fixed
+
+* **pages:** harden partial-edit safety ([48e7eb6](https://github.com/pnocera/bookstack-mcp-server/commit/48e7eb6c985fb83a71b76bacae48ad1644e47732))
+* **pages:** retain chained edit verification ([89e87e3](https://github.com/pnocera/bookstack-mcp-server/commit/89e87e3c16e02b1e690edd2ad9a9adb54691ca6f))
+* **pages:** verify final partial edit state ([545bbf6](https://github.com/pnocera/bookstack-mcp-server/commit/545bbf6df35aba0559ab1a04eeedc15e94cbb104))
+* **pages:** verify transformed partial edits ([b51e925](https://github.com/pnocera/bookstack-mcp-server/commit/b51e92515a807be57a5e9d9ae673c3e82463cdc0))
+* **release:** stop failing the workflow on a direct push to main ([6afe258](https://github.com/pnocera/bookstack-mcp-server/commit/6afe2580f715562ac141e9f67b7cc856fb8db617))
+
 ## [2.0.0](https://github.com/pnocera/bookstack-mcp-server/releases/tag/v2.0.0) (2026-07-17)
 
 ### ⚠ BREAKING CHANGES
