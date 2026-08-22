@@ -96,7 +96,7 @@ The guards, and why each exists:
 | Uniqueness | `old_string` must match exactly once, or the edit is refused. The error carries the first few ambiguous matches with context. `replace_all` is the explicit opt-in. |
 | Whitespace diagnostics | When an anchor is not found, the error reports the same text found with different whitespace — the most common near-miss — so the caller can retry with the real bytes. |
 | `dry_run` | Applies the edits in memory and reports what would change. Nothing is sent to BookStack. |
-| `expected_updated_at` | Optimistic lock against the page's `updated_at`. Without it, a concurrent edit is silently overwritten. |
+| `expected_updated_at` | Best-effort stale-page preflight against `updated_at`. It catches a page changed before the server reads it; BookStack has no atomic version condition, so it cannot prevent a later racing write. |
 | Shrink guard | A result smaller than half the original is refused unless `allow_shrink` is set, so an anchor that accidentally swallows most of the document cannot be applied. |
 | Post-write verification | The page is re-read and the written fragments are looked for in normalised text — BookStack rewrites stored HTML on save (heading anchors, injected `id` attributes), so a byte comparison would report every success as a failure. A fragment that cannot be found comes back as `verified: false` rather than an error: the write did happen. |
 

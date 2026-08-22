@@ -300,7 +300,7 @@ only the fragment it wants changed:
     "edits": [{ "old_string": "retention period of 6 months",
                 "new_string": "retention period of 24 months" }] } }
 
-// 4. Apply, refusing the write if someone else edited meanwhile
+// 4. Apply with a stale-page preflight
 { "tool": "bookstack_pages_edit",
   "arguments": { "id": 12, "expected_updated_at": "2026-08-17T09:12:44.000000Z",
     "edits": [{ "old_string": "retention period of 6 months",
@@ -315,6 +315,9 @@ change is looked for in normalised text — BookStack rewrites stored HTML on sa
 anchors, injected `id` attributes), so a byte comparison would call every success a failure.
 Every write creates a BookStack revision, so an applied edit can be rolled back in the UI.
 No response from these tools contains page content.
+`expected_updated_at` detects a page changed before this server reads it; BookStack's page
+API does not provide an atomic version condition, so it cannot prevent a write that races
+after that check.
 
 **Two invariants**, if you touch this code (`src/utils/page-content.ts`): markdown pages are
 patched and written through `markdown`, because writing `html` to one switches the page's

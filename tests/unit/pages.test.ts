@@ -209,6 +209,13 @@ describe('PageTools partial editing', () => {
       ).rejects.toThrow();
       expect(mockClient.getPage).not.toHaveBeenCalled();
     });
+
+    it('rejects an oversized grep query before reading the page', async () => {
+      await expect(
+        tool('bookstack_pages_read').handler({ id: PAGE_ID, grep: 'x'.repeat(1001) })
+      ).rejects.toThrow();
+      expect(mockClient.getPage).not.toHaveBeenCalled();
+    });
   });
 
   describe('bookstack_pages_outline', () => {
@@ -346,6 +353,23 @@ describe('PageTools partial editing', () => {
       expect(result.verified).toBe(false);
       expect(result.unverified_fragment_count).toBe(1);
       expect(mockLogger.warn).toHaveBeenCalled();
+    });
+
+    it('does not claim a deletion was verified when the old anchor remains', async () => {
+      // `new_string: ''` is an intentional deletion. If BookStack leaves the original source
+      // in place, verification has to test the old anchor's absence rather than treating an
+      // empty replacement as automatically present.
+      mockClient.getPage.mockResolvedValueOnce(page()).mockResolvedValueOnce(page());
+      mockClient.updatePage.mockResolvedValue(page());
+
+      const result = await call<WriteResult>('bookstack_pages_edit', {
+        id: PAGE_ID,
+        edits: [{ old_string: 'Second paragraph', new_string: '' }],
+      });
+
+      expect(result.written).toBe(true);
+      expect(result.verified).toBe(false);
+      expect(result.unverified_fragment_count).toBe(1);
     });
 
     it('rejects an empty edit list at the schema boundary', async () => {

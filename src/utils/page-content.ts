@@ -79,6 +79,11 @@ export class PageStaleError extends Error {
 const CONTEXT_RADIUS = 120;
 const MAX_DIAGNOSTIC_LENGTH = 300;
 
+/** Escape literal anchor text for the whitespace-tolerant diagnostic only. */
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /**
  * Decide which field to patch and which one to write back.
  *
@@ -126,13 +131,6 @@ export function contextAround(
   const start = Math.max(0, offset - radius);
   const end = Math.min(text.length, offset + radius);
   return `${start > 0 ? '…' : ''}${text.slice(start, end)}${end < text.length ? '…' : ''}`;
-}
-
-/**
- * Escape a literal string for use inside a regular expression.
- */
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /**
@@ -324,37 +322,41 @@ export function buildOutline(source: string, writeField: PageWriteField): Headin
  */
 export function grepContent(
   source: string,
-  pattern: string,
+  query: string,
   options: { caseInsensitive?: boolean; contextChars?: number; maxMatches?: number } = {}
 ): { matches: GrepMatch[]; total: number; truncated: boolean } {
   const { caseInsensitive = true, contextChars = 200, maxMatches = 10 } = options;
 
-  let regex: RegExp;
-  try {
-    regex = new RegExp(pattern, caseInsensitive ? 'gi' : 'g');
-  } catch (error) {
-    throw new PageContentError(`Invalid grep pattern: ${(error as Error).message}`, { pattern });
+  if (query.length === 0) {
+    throw new PageContentError('Search text must be non-empty');
   }
 
+  // This is intentionally literal search rather than caller-supplied RegExp. Apart from
+  // catastrophic backtracking, a regex match can span an entire large page and defeat the
+  // narrow-read contract even when context/maxMatches are bounded.
+  const haystack = caseInsensitive ? source.toLowerCase() : source;
+  const needle = caseInsensitive ? query.toLowerCase() : query;
   const matches: GrepMatch[] = [];
   let total = 0;
+  let searchFrom = 0;
 
-  // `matchAll` advances past a zero-length match itself, so a pattern like `x*` - which
-  // matches the empty string at every position - terminates instead of spinning forever.
-  // The hand-rolled exec loop this replaces had to bump `lastIndex` for that case by hand.
-  //
   // `total` counts EVERY match while only `maxMatches` are collected: a truncated result that
   // under-reported the total would read as "this anchor is unique" and a caller would edit on
   // that basis.
-  for (const match of source.matchAll(regex)) {
+  while (searchFrom <= haystack.length) {
+    const offset = haystack.indexOf(needle, searchFrom);
+    if (offset === -1) {
+      break;
+    }
     total += 1;
     if (matches.length < maxMatches) {
       matches.push({
-        offset: match.index,
-        match: match[0],
-        context: contextAround(source, match.index, contextChars),
+        offset,
+        match: source.slice(offset, offset + query.length),
+        context: contextAround(source, offset, contextChars),
       });
     }
+    searchFrom = offset + query.length;
   }
 
   return { matches, total, truncated: total > matches.length };

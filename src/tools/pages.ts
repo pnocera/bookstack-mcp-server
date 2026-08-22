@@ -17,6 +17,7 @@ import {
   containsNormalized,
   grepContent,
   insertContent,
+  normalizeForComparison,
   type PageSource,
   PageStaleError,
   selectSource,
@@ -33,6 +34,12 @@ import type {
 
 /** The whole `bookstack_pages_update` request: the page to update, plus the changes. */
 type UpdatePageRequest = UpdatePageParams & IdRequest;
+
+/** What a post-write read must prove without requiring byte-identical HTML. */
+interface WriteVerification {
+  mustContain: string[];
+  mustNotContain: string[];
+}
 
 /**
  * Page management tools for BookStack MCP Server
@@ -375,8 +382,9 @@ export class PageTools {
           grep: {
             type: 'string',
             minLength: 1,
+            maxLength: 1000,
             description:
-              'Regular expression to search the STORED page source for. Returns matching excerpts with surrounding context instead of the whole page. Searching the stored source (not the rendered HTML) is what makes a returned excerpt usable verbatim as an `old_string` anchor.',
+              'Literal text to search for in the STORED page source. Returns matching excerpts with surrounding context instead of the whole page. Regex syntax is treated literally, so searching the stored source (not the rendered HTML) makes a returned excerpt usable verbatim as an `old_string` anchor.',
           },
           case_sensitive: {
             type: 'boolean',
@@ -459,9 +467,8 @@ export class PageTools {
         },
         {
           code: 'INVALID_PARAMS',
-          description: '`grep` is not a valid regular expression',
-          recovery_suggestion:
-            'Escape regex metacharacters, or search for a plainer substring instead',
+          description: '`grep` must be between 1 and 1,000 characters',
+          recovery_suggestion: 'Use a shorter literal phrase from the page source.',
         },
       ],
       handler: async (params: unknown) => {
@@ -683,7 +690,7 @@ export class PageTools {
             type: 'string',
             minLength: 1,
             description:
-              "Optimistic lock: the page's `updated_at` as seen when the anchors were read. The write is refused if the page has changed since. Strongly recommended - without it a concurrent edit is silently overwritten.",
+              "Best-effort stale preflight: the page's `updated_at` as seen when the anchors were read. The write is refused if it has already changed when the server reads it. BookStack's API has no atomic conditional update, so this cannot prevent a change made between that read and the subsequent write.",
           },
           allow_shrink: {
             type: 'boolean',
@@ -711,7 +718,7 @@ export class PageTools {
           use_case: 'Verifying an edit before applying it',
         },
         {
-          description: 'Apply the edit with an optimistic lock',
+          description: 'Apply the edit with a stale preflight',
           input: {
             id: 12,
             edits: [
@@ -729,7 +736,7 @@ export class PageTools {
       usage_patterns: [
         'Locate the text first: bookstack_pages_read with `grep` returns excerpts you can paste straight into old_string',
         'Run with dry_run: true first on anything non-trivial - it costs no write and proves the anchors resolve',
-        'Pass expected_updated_at from the read that produced your anchors, so a concurrent edit is refused instead of overwritten',
+        'Pass expected_updated_at from the read that produced your anchors to catch a page that was already stale when this server read it; BookStack cannot make this a race-free lock',
         'BookStack keeps a revision per write, so an applied edit can be rolled back in the UI',
         'Prefer this over bookstack_pages_update for partial changes: update replaces the entire content field',
       ],
@@ -792,12 +799,14 @@ export class PageTools {
 
         return {
           ...summary,
-          ...(await this.writeAndVerify(
-            page,
-            source,
-            result,
-            options.edits.map((edit) => edit.new_string)
-          )),
+          ...(await this.writeAndVerify(page, source, result, {
+            mustContain: options.edits
+              .filter((edit) => edit.new_string.length > 0)
+              .map((edit) => edit.new_string),
+            mustNotContain: options.edits
+              .filter((edit) => edit.new_string.length === 0)
+              .map((edit) => edit.old_string),
+          })),
         };
       },
     };
@@ -854,7 +863,7 @@ export class PageTools {
             type: 'string',
             minLength: 1,
             description:
-              "Optimistic lock: the page's `updated_at` as previously read. The write is refused if the page has changed since.",
+              "Best-effort stale preflight: reject if the page is already changed when the server reads it. This is not an atomic lock because BookStack's update API accepts no version precondition.",
           },
         },
       },
@@ -940,7 +949,10 @@ export class PageTools {
 
         return {
           ...summary,
-          ...(await this.writeAndVerify(page, source, result, [options.content])),
+          ...(await this.writeAndVerify(page, source, result, {
+            mustContain: [options.content],
+            mustNotContain: [],
+          })),
         };
       },
     };
@@ -1029,11 +1041,12 @@ export class PageTools {
   }
 
   /**
-   * Refuse a write if the page moved since the caller read it.
+   * Refuse a write if the page had already moved when this server read it.
    *
    * Compared as strings against what BookStack reported, not as parsed dates: the API's
    * microsecond precision survives a round trip, and parsing would introduce a way for two
-   * different timestamps to compare equal.
+   * different timestamps to compare equal. This remains a preflight, not a lock: BookStack
+   * accepts an unconditional PUT, so another actor can still write after this comparison.
    */
   private assertNotStale(page: PageWithContent, expectedUpdatedAt?: string): void {
     if (expectedUpdatedAt === undefined || expectedUpdatedAt === page.updated_at) {
@@ -1061,30 +1074,40 @@ export class PageTools {
     page: PageWithContent,
     source: PageSource,
     result: string,
-    expectedFragments: string[]
+    verification: WriteVerification
   ): Promise<Record<string, unknown>> {
     await this.client.updatePage(page.id, { [source.writeField]: result });
 
     const written = await this.client.getPage(page.id);
     const writtenSource = selectSource(written);
-    const missing = expectedFragments.filter(
+    const missing = verification.mustContain.filter(
       (fragment) => !containsNormalized(writtenSource.source, fragment, writtenSource.writeField)
     );
+    // An empty replacement deletes its old anchor. An empty normalised anchor cannot be
+    // meaningfully searched for, so treat it as unverified rather than claiming success.
+    const stillPresent = verification.mustNotContain.filter((fragment) => {
+      const normalized = normalizeForComparison(fragment, writtenSource.writeField);
+      return (
+        normalized.length === 0 ||
+        containsNormalized(writtenSource.source, fragment, writtenSource.writeField)
+      );
+    });
+    const unverifiedCount = missing.length + stillPresent.length;
 
-    if (missing.length > 0) {
+    if (unverifiedCount > 0) {
       // Not an error: the page WAS written. But a fragment we cannot find afterwards means
       // BookStack transformed it beyond recognition (a sanitiser dropping a tag, say), and
       // that is worth an operator's attention. Count only - the fragments are page content.
       this.logger.warn('Page write could not be verified', {
         page_id: page.id,
-        unverified_fragment_count: missing.length,
+        unverified_fragment_count: unverifiedCount,
       });
     }
 
     return {
       written: true,
-      verified: missing.length === 0,
-      unverified_fragment_count: missing.length,
+      verified: unverifiedCount === 0,
+      unverified_fragment_count: unverifiedCount,
       updated_at: written.updated_at,
       revision_count: written.revision_count,
       chars_stored: writtenSource.source.length,

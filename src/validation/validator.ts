@@ -409,7 +409,9 @@ const ValidationSchemas = {
    */
   pageRead: z.strictObject({
     id: entityId,
-    grep: z.string().min(1).optional(),
+    // Literal search is capped so one result cannot smuggle an entire large page through the
+    // narrowed-read response. The handler returns the literal query as the match value.
+    grep: z.string().min(1).max(1000).optional(),
     case_sensitive: z.boolean().default(false),
     // The upper bound is the one that matters: grep exists to avoid shipping the whole page.
     // The lower bound only keeps the window non-empty and non-negative. A very narrow excerpt

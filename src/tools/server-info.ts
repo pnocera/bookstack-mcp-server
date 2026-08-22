@@ -794,7 +794,7 @@ export class ServerInfoTools {
           },
           {
             step: 4,
-            action: 'Apply it with an optimistic lock',
+            action: 'Apply it with a stale-page preflight',
             tool_or_resource: 'bookstack_pages_edit',
             parameters: {
               id: 12,
@@ -807,7 +807,7 @@ export class ServerInfoTools {
               expected_updated_at: '2026-08-17T09:12:44.000000Z',
             },
             description:
-              'Pass the updated_at from step 2 so a concurrent edit is refused rather than silently overwritten',
+              'Pass the updated_at from step 2 to catch a page changed before this server reads it. BookStack does not provide an atomic version condition, so this cannot prevent a later racing write.',
           },
         ],
         expected_outcome:

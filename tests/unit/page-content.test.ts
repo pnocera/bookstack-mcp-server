@@ -241,13 +241,13 @@ describe('buildOutline', () => {
 describe('grepContent', () => {
   const source = 'Line one\nLine two\nLine three';
 
-  it('returns matches with their offsets, matched text and context', () => {
-    const { matches, total, truncated } = grepContent(source, 'Line \\w+', { contextChars: 5 });
+  it('returns literal matches with their offsets, matched text and context', () => {
+    const { matches, total, truncated } = grepContent(source, 'Line one', { contextChars: 5 });
 
-    expect(total).toBe(3);
+    expect(total).toBe(1);
     expect(truncated).toBe(false);
     expect(matches[0].match).toBe('Line one');
-    expect(matches[1].offset).toBe(source.indexOf('Line two'));
+    expect(matches[0].offset).toBe(source.indexOf('Line one'));
   });
 
   it('honours maxMatches while still reporting the true total', () => {
@@ -265,14 +265,16 @@ describe('grepContent', () => {
     expect(grepContent(source, 'line', { caseInsensitive: false }).total).toBe(0);
   });
 
-  it('does not hang on a pattern that can match nothing', () => {
-    // `x*` matches the empty string at every position. Without advancing lastIndex by hand
-    // this loops forever, which in a tool handler is a wedged request rather than an error.
-    expect(grepContent('abc', 'x*').total).toBe(4);
-  });
+  it('treats regex syntax literally so it cannot return the whole page as one match', () => {
+    const wholePagePattern = '[\\s\\S]*';
 
-  it('rejects an invalid pattern instead of throwing a raw SyntaxError', () => {
-    expect(() => grepContent(source, '([')).toThrow(PageContentError);
+    expect(
+      grepContent('All of this content must stay out of the response', wholePagePattern)
+    ).toEqual({
+      matches: [],
+      total: 0,
+      truncated: false,
+    });
   });
 });
 

@@ -334,7 +334,7 @@ interface PageWithContent extends Page {
 // full page object. With none set, the complete page object comes back unchanged.
 interface ReadPageOptions {
   id: number;             // Required
-  grep?: string;          // Regex over the STORED source; returns excerpts only
+  grep?: string;          // Literal phrase in the STORED source (1-1000 chars); returns excerpts only
   case_sensitive?: boolean; // Default false
   context?: number;       // Context characters per match, 1-2000, default 200
   max_matches?: number;   // Excerpts returned, 1-50, default 10 (total is still reported)
@@ -369,7 +369,7 @@ interface EditPageParams {
     replace_all?: boolean;       // Default false; opt-in for a repeated anchor
   }>;
   dry_run?: boolean;             // Report what would change, write nothing
-  expected_updated_at?: string;  // Optimistic lock against the page's updated_at
+  expected_updated_at?: string;  // Best-effort stale-page preflight; not an atomic lock
   allow_shrink?: boolean;        // Permit a result under half the original size
 }
 
@@ -385,8 +385,8 @@ interface EditPageParams {
 An anchor that cannot be applied comes back as `InvalidParams` with actionable
 detail rather than a bare failure: `found_with_different_whitespace` when the text
 exists but the whitespace differs, `first_occurrences` when it matched more than
-once, `chars_before`/`chars_after` when the shrink guard fired. A page that moved
-since `expected_updated_at` comes back as `InvalidRequest` with
+once, `chars_before`/`chars_after` when the shrink guard fired. A page that changed
+before this server read it comes back as `InvalidRequest` with
 `type: 'concurrent_modification'`.
 
 #### Append to Page
