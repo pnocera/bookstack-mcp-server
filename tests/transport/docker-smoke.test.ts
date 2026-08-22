@@ -243,7 +243,7 @@ describe.skipIf(!SMOKE_ENABLED)('built image', () => {
       const payload = (await authenticated.json()) as {
         result?: { tools?: Array<{ name: string }> };
       };
-      expect(payload.result?.tools).toHaveLength(56);
+      expect(payload.result?.tools).toHaveLength(59);
     },
     STARTUP_TIMEOUT_MS + 15_000
   );
