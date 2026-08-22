@@ -40,6 +40,7 @@ import type {
 import { ErrorHandler } from '../../src/utils/errors';
 import { Logger } from '../../src/utils/logger';
 import { ValidationHandler } from '../../src/validation/validator';
+import { VERSION } from '../../src/version';
 import {
   apiUrl,
   appUrl,
@@ -136,7 +137,7 @@ describe.skipIf(!runIntegration)('system + server-info tools (live BookStack)', 
 
     const config: Config = {
       bookstack: { baseUrl: harness.baseUrl, apiToken: harness.token, timeout: 30_000 },
-      server: { name: 'bookstack-mcp-server', version: '1.0.0', port: 3000 },
+      server: { name: 'bookstack-mcp-server', version: VERSION, port: 3000 },
       // The production defaults. Every suite here authenticates as the same admin
       // user, so pacing outbound calls keeps one suite from starving its
       // neighbours even where the instance itself would allow more.
@@ -316,7 +317,7 @@ describe.skipIf(!runIntegration)('system + server-info tools (live BookStack)', 
       const info = (await callTool('bookstack_server_info', {})) as MCPServerInfo;
 
       expect(info.name).toBe('BookStack MCP Server');
-      expect(info.version).toBe('1.0.0');
+      expect(info.version).toBe(VERSION);
       expect(info.capabilities.tools.total).toBe(toolsMap.size);
       expect(info.capabilities.resources.total).toBe(resourcesMap.size);
       expect(info.capabilities.authentication.required).toBe(true);
@@ -575,11 +576,11 @@ describe.skipIf(!runIntegration)('system + server-info tools (live BookStack)', 
     it('serves real content for every workflow its enum advertises', async () => {
       // This tool was wholly non-functional: lookup was
       // `title.toLowerCase().includes(workflow)`, and since every enum value carries
-      // an underscore and no title does, all five values returned "Workflow not
+      // an underscore and no title does, all values returned "Workflow not
       // found" — two of them had no content behind them at all. Every advertised
       // value must now come back as a fully-populated workflow.
       const workflows = advertisedEnum('bookstack_usage_examples', 'workflow');
-      expect(workflows).toHaveLength(5);
+      expect(workflows).toHaveLength(6);
 
       for (const workflow of workflows) {
         const example = (await callTool('bookstack_usage_examples', {

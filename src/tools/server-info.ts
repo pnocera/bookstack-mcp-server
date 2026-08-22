@@ -294,6 +294,7 @@ export class ServerInfoTools {
             type: 'string',
             enum: [
               'create_documentation',
+              'edit_part_of_large_page',
               'organize_content',
               'user_management',
               'search_content',
@@ -464,18 +465,24 @@ export class ServerInfoTools {
       },
       {
         name: 'pages',
-        description: 'Manage individual pages - the core content units',
+        description:
+          'Manage individual pages - the core content units. Includes partial editing, so a change to one paragraph does not require resending the whole page.',
         tools: [
           'bookstack_pages_list',
           'bookstack_pages_create',
           'bookstack_pages_read',
           'bookstack_pages_update',
+          'bookstack_pages_edit',
+          'bookstack_pages_append',
+          'bookstack_pages_outline',
           'bookstack_pages_delete',
           'bookstack_pages_export',
         ],
         use_cases: [
           'Create articles and documentation',
           'Update existing content',
+          'Change parts of a large page without rewriting it',
+          'Navigate a long page by its heading structure',
           'Manage page hierarchy',
         ],
       },
@@ -597,7 +604,7 @@ export class ServerInfoTools {
         use_cases: ['Upload images', 'Manage gallery assets'],
       },
       {
-        // Without this entry the categories described 51 of the server's 56 tools:
+        // Without this entry the categories described 54 of the server's 59 tools:
         // the five self-describing tools belonged to no category, so the listing an
         // LLM consults to find out what exists omitted the tools that tell it what
         // exists. They all declare `category: 'meta'` themselves.
@@ -746,6 +753,66 @@ export class ServerInfoTools {
           },
         ],
         expected_outcome: 'Updated documentation with current and accurate information',
+      },
+      {
+        key: 'edit_part_of_large_page',
+        title: 'Change a Small Part of a Large Page',
+        description:
+          'Correct one passage in a long page without reading or rewriting the rest. Prefer this over bookstack_pages_update, which replaces the entire content field and therefore requires the model to reproduce the whole page verbatim.',
+        workflow: [
+          {
+            step: 1,
+            action: 'Map the page structure',
+            tool_or_resource: 'bookstack_pages_outline',
+            parameters: { id: 12 },
+            description:
+              'See which sections exist, how big each one is, and whether the page is HTML or Markdown - all without transferring content',
+          },
+          {
+            step: 2,
+            action: 'Find an exact anchor',
+            tool_or_resource: 'bookstack_pages_read',
+            parameters: { id: 12, grep: 'retention period', context: 300 },
+            description:
+              'Returns only matching excerpts from the STORED source. Copy one verbatim as old_string - that is what makes the anchor match',
+          },
+          {
+            step: 3,
+            action: 'Rehearse the edit',
+            tool_or_resource: 'bookstack_pages_edit',
+            parameters: {
+              id: 12,
+              edits: [
+                {
+                  old_string: 'retention period of 6 months',
+                  new_string: 'retention period of 24 months',
+                },
+              ],
+              dry_run: true,
+            },
+            description:
+              'Confirms the anchor resolves and is unique, and reports the size change. Nothing is written',
+          },
+          {
+            step: 4,
+            action: 'Apply it with a stale-page preflight',
+            tool_or_resource: 'bookstack_pages_edit',
+            parameters: {
+              id: 12,
+              edits: [
+                {
+                  old_string: 'retention period of 6 months',
+                  new_string: 'retention period of 24 months',
+                },
+              ],
+              expected_updated_at: '2026-08-17T09:12:44.000000Z',
+            },
+            description:
+              'Pass the updated_at from step 2 to catch a page changed before this server reads it. BookStack does not provide an atomic version condition, so this cannot prevent a later racing write.',
+          },
+        ],
+        expected_outcome:
+          'One passage changed, the rest of the page untouched and never sent through the model. BookStack records a revision, so the change can be rolled back in the UI.',
       },
       {
         key: 'organize_content',

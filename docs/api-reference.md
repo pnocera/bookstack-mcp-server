@@ -29,7 +29,7 @@ The BookStack MCP Server provides comprehensive access to the BookStack knowledg
 
 ### Key Features
 
-- **API Coverage**: 56 tools and 11 resources across 13 categories, covering the supported subset of the BookStack API (comments, imports, tag listings, image-gallery `data` endpoints and ZIP export are not exposed)
+- **API Coverage**: 59 tools and 11 resources across 13 categories, covering the supported subset of the BookStack API (comments, imports, tag listings, image-gallery `data` endpoints and ZIP export are not exposed)
 - **Type Safety**: Full TypeScript interfaces for all operations
 - **Robust Error Handling**: Comprehensive error mapping and recovery guidance
 - **Rate Limiting**: Token bucket algorithm with configurable limits
@@ -325,9 +325,22 @@ interface CreatePageParams {
 ```typescript
 // Tool: bookstack_pages_read
 interface PageWithContent extends Page {
-  html: string;          // Rendered HTML content
-  raw_html: string;      // Raw HTML as stored
-  markdown?: string;     // Markdown source if available
+  html: string;          // Rendered HTML content, page includes resolved
+  raw_html: string;      // Raw HTML as stored - this is what the edit tools patch
+  markdown?: string;     // Markdown source; empty string for HTML-authored pages
+}
+
+// With any option below set, the response is a narrowed summary instead of the
+// full page object. With none set, the complete page object comes back unchanged.
+interface ReadPageOptions {
+  id: number;             // Required
+  grep?: string;          // Literal phrase in the STORED source (1-1000 chars); returns excerpts only
+  case_sensitive?: boolean; // Default false
+  context?: number;       // Context characters per match, 1-2000, default 200
+  max_matches?: number;   // Excerpts returned, 1-50, default 10 (total is still reported)
+  offset?: number;        // Start of a character window into the stored source
+  length?: number;        // Length of that window
+  metadata_only?: boolean; // Metadata and total_chars only, no content
 }
 ```
 
@@ -336,6 +349,71 @@ interface PageWithContent extends Page {
 // Tool: bookstack_pages_update
 // Same as CreatePageParams but all fields optional except id
 // Can move pages between books/chapters by changing book_id/chapter_id
+// NOTE: replaces the ENTIRE content field. For a partial change use
+// bookstack_pages_edit or bookstack_pages_append below.
+```
+
+#### Edit Page (partial update)
+```typescript
+// Tool: bookstack_pages_edit
+//
+// The BookStack API has no PATCH for page content, so the server performs the
+// read-modify-write cycle itself: it reads the page, applies the edits to its
+// STORED source (raw_html, or markdown for markdown pages) and writes the result
+// back. The caller sends only the fragment it wants changed.
+interface EditPageParams {
+  id: number;                    // Required
+  edits: Array<{                 // Required, at least one; applied in order
+    old_string: string;          // Exact text, whitespace included; must be unique
+    new_string: string;          // Replacement; '' deletes the anchored text
+    replace_all?: boolean;       // Default false; opt-in for a repeated anchor
+  }>;
+  dry_run?: boolean;             // Report what would change, write nothing
+  expected_updated_at?: string;  // Best-effort stale-page preflight; not an atomic lock
+  allow_shrink?: boolean;        // Permit a result under half the original size
+}
+
+// The response carries no page content:
+// {
+//   page_id, name, slug, book_id, chapter_id, updated_at, revision_count,
+//   editor, field, chars_before, chars_after, delta,
+//   edits: [{ index, occurrences_replaced, context }],
+//   written, verified, unverified_fragment_count, chars_stored
+// }
+```
+
+An anchor that cannot be applied comes back as `InvalidParams` with actionable
+detail rather than a bare failure: `found_with_different_whitespace` when the text
+exists but the whitespace differs, `first_occurrences` when it matched more than
+once, `chars_before`/`chars_after` when the shrink guard fired. A page that changed
+before this server read it comes back as `InvalidRequest` with
+`type: 'concurrent_modification'`.
+
+#### Append to Page
+```typescript
+// Tool: bookstack_pages_append
+interface AppendPageParams {
+  id: number;                    // Required
+  content: string;               // Required, in the page's own format
+  position?: 'start' | 'end';    // Default 'end'; 'start' means after the heading
+  section?: string;              // Heading text; omit to target the whole page
+  separator?: string;            // Default '\n\n' for markdown, '\n' otherwise
+  dry_run?: boolean;
+  expected_updated_at?: string;
+}
+```
+
+An unknown `section` fails with `available_sections` listing the real heading names.
+
+#### Outline Page
+```typescript
+// Tool: bookstack_pages_outline
+// Heading structure only - no content is transferred.
+// {
+//   page_id, name, slug, book_id, chapter_id, updated_at, revision_count,
+//   editor, field, total_chars, heading_count,
+//   headings: [{ level, text, offset, length }]   // length = section size
+// }
 ```
 
 #### Delete Page

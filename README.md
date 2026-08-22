@@ -1,6 +1,6 @@
 # BookStack MCP Server
 
-Connect BookStack to Claude and other AI assistants through the Model Context Protocol (MCP). This server exposes 56 tools and 11 resources covering the supported subset of the BookStack API — books, pages, chapters, shelves, search, users, roles, permissions, attachments, images, the recycle bin, the audit log and system info.
+Connect BookStack to Claude and other AI assistants through the Model Context Protocol (MCP). This server exposes 59 tools and 11 resources covering the supported subset of the BookStack API — books, pages, chapters, shelves, search, users, roles, permissions, attachments, images, the recycle bin, the audit log and system info.
 
 This server supports two transport modes: **Streamable HTTP** (default) and **Stdio**.
 
@@ -13,7 +13,7 @@ This server supports two transport modes: **Streamable HTTP** (default) and **St
 ## ✨ What You Get
 
 - **BookStack Integration** - Access your books, pages, chapters, and content
-- **56 MCP Tools & 11 Resources** - CRUD, search and export across the supported endpoint families
+- **59 MCP Tools & 11 Resources** - CRUD, search and export across the supported endpoint families
 - **Search & Export** - Find content and export in multiple formats
 - **User Management** - Handle users, roles, and permissions
 - **Production Ready** - Rate limiting, validation, error handling, and logging
@@ -44,7 +44,7 @@ bookstack-mcp-server
 
 The two tokens are **not** interchangeable and must not be set to the same value:
 `BOOKSTACK_API_TOKEN` is what the server presents to BookStack; `MCP_AUTH_TOKEN` is
-what callers must present to `POST /message`, which dispatches all 56 tools with the
+what callers must present to `POST /message`, which dispatches all 59 tools with the
 authority of the BookStack account behind `BOOKSTACK_API_TOKEN`. Skip `MCP_AUTH_TOKEN`
 only for [stdio](#-transports), which has no network surface and ignores it.
 
@@ -171,7 +171,7 @@ with the failing check named:
   "status": "unhealthy",
   "checks": [
     { "name": "bookstack_connection", "healthy": false, "message": "BookStack API connection" },
-    { "name": "tools_loaded", "healthy": true, "message": "56 tools loaded" },
+    { "name": "tools_loaded", "healthy": true, "message": "59 tools loaded" },
     { "name": "resources_loaded", "healthy": true, "message": "11 resources loaded" }
   ]
 }
@@ -247,10 +247,10 @@ MCP clients pipe over stdin/stdout. For stdio you also don't need `-p 3000:3000`
 
 ## 🛠️ Available Tools
 
-**56 tools across 13 categories:**
+**59 tools across 13 categories:**
 
 - **📚 Books** (6) - Create, read, update, delete, and export books
-- **📄 Pages** (6) - Manage pages with HTML/Markdown content
+- **📄 Pages** (9) - Manage pages with HTML/Markdown content, including [partial editing](#-partial-page-editing)
 - **📑 Chapters** (6) - Organize pages within books
 - **📚 Shelves** (5) - Group books into collections
 - **🔍 Search** (1) - Search across content types
@@ -267,6 +267,67 @@ Not exposed (no tools): comments, imports, tag-name listings, the image-gallery
 `data` endpoints, and `zip` export.
 
 > 📖 See the complete [Tools Overview](docs/tools-overview.md) for detailed documentation
+
+## ✂️ Partial page editing
+
+The BookStack API has no PATCH for page content — `PUT /api/pages/{id}` takes a complete
+`html` or `markdown` body. Changing one paragraph of a long page therefore meant reading all
+of it, having the model reproduce it verbatim with the change applied, and sending it all
+back: the content crosses the model twice, and the whole page rides on it being copied
+byte-perfectly.
+
+Three tools run that read-modify-write cycle inside the server instead, so a caller sends
+only the fragment it wants changed:
+
+| Tool | What it does |
+|---|---|
+| `bookstack_pages_outline` | Heading structure with offsets and section sizes. No content transferred. |
+| `bookstack_pages_read` with `grep` | Matching excerpts from the **stored** source — paste one straight into `old_string`. |
+| `bookstack_pages_edit` | Literal find-and-replace. `old_string` must match exactly and be unique unless `replace_all` is set. |
+| `bookstack_pages_append` | Insert at the end of the page, the end of a named section, or right after a section heading. |
+
+```jsonc
+// 1. What sections exist, and how big are they?
+{ "tool": "bookstack_pages_outline", "arguments": { "id": 12 } }
+
+// 2. Get an exact anchor without loading the page
+{ "tool": "bookstack_pages_read",
+  "arguments": { "id": 12, "grep": "retention period", "context": 300 } }
+
+// 3. Rehearse: nothing is written
+{ "tool": "bookstack_pages_edit",
+  "arguments": { "id": 12, "dry_run": true,
+    "edits": [{ "old_string": "retention period of 6 months",
+                "new_string": "retention period of 24 months" }] } }
+
+// 4. Apply with a stale-page preflight
+{ "tool": "bookstack_pages_edit",
+  "arguments": { "id": 12, "expected_updated_at": "2026-08-17T09:12:44.000000Z",
+    "edits": [{ "old_string": "retention period of 6 months",
+                "new_string": "retention period of 24 months" }] } }
+```
+
+**Guards.** An ambiguous anchor is refused rather than applied to the wrong place, and the
+error carries the first few matches with context. A missing anchor reports the same text found
+with different whitespace, which is the usual near-miss. A result smaller than half the
+original is refused unless `allow_shrink` is set. After a write the page is re-read and the
+change is looked for in normalised text — BookStack rewrites stored HTML on save (heading
+anchors, injected `id` attributes), so a byte comparison would call every success a failure.
+Every write creates a BookStack revision, so an applied edit can be rolled back in the UI.
+No response from these tools contains page content.
+`expected_updated_at` detects a page changed before this server reads it; BookStack's page
+API does not provide an atomic version condition, so it cannot prevent a write that races
+after that check.
+
+**Two invariants**, if you touch this code (`src/utils/page-content.ts`): markdown pages are
+patched and written through `markdown`, because writing `html` to one switches the page's
+editor type; every other page is patched against `raw_html`, never the rendered `html` —
+patching the rendered output would write back expanded page-include tags and destroy the
+includes permanently.
+
+`bookstack_pages_update` is unchanged and still replaces the whole content field; these tools
+are additive. `bookstack_pages_read` called without any of the new options returns exactly
+what it always did.
 
 ## 📚 Documentation
 

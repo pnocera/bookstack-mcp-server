@@ -1,16 +1,16 @@
 # BookStack MCP Server Tools Overview
 
-## All 56 Tools Across 13 Categories
+## All 59 Tools Across 13 Categories
 
 This document provides an overview of every tool implemented in the BookStack MCP server, its capabilities, usage patterns, and implementation details.
 
 ## Executive Summary
 
-The BookStack MCP Server provides **56 tools** (and **11 resources**) organized into **13 categories**, implementing the supported subset of the BookStack knowledge management API. Each tool follows consistent patterns for validation, error handling, and logging.
+The BookStack MCP Server provides **59 tools** (and **11 resources**) organized into **13 categories**, implementing the supported subset of the BookStack knowledge management API. Each tool follows consistent patterns for validation, error handling, and logging.
 
 The categories below are the ones returned by `bookstack_tool_categories`, and the
-per-category counts add up to the 56 tools the server registers at boot (it logs
-`Registered 56 tools` / `Registered 11 resources` on startup):
+per-category counts add up to the 59 tools the server registers at boot (it logs
+`Registered 59 tools` / `Registered 11 resources` on startup):
 
 | Section | Category | Tools |
 |---------|----------|-------|
@@ -49,7 +49,7 @@ per-category counts add up to the 56 tools the server registers at boot (it logs
 - Use filtering to find specific topic areas
 - Combine with pagination for large book collections
 
-### 2. Pages Management (6 tools)
+### 2. Pages Management (9 tools)
 **Category**: `pages`  
 **Purpose**: Manage individual pages - the core content units
 
@@ -57,8 +57,11 @@ per-category counts add up to the 56 tools the server registers at boot (it logs
 |-----------|-------------|----------------|
 | `bookstack_pages_list` | List pages with filtering by book/chapter | count, offset, sort, filter (book_id, chapter_id, draft, template) |
 | `bookstack_pages_create` | Create new page with HTML or Markdown content | name (required), book_id/chapter_id, html/markdown, tags, priority |
-| `bookstack_pages_read` | Get page details with full content | id (required) |
-| `bookstack_pages_update` | Update page content and move between containers | id (required), name, html/markdown, book_id, chapter_id, tags, priority |
+| `bookstack_pages_read` | Get page details with full content, or narrowed excerpts | id (required), grep, case_sensitive, context, max_matches, offset, length, metadata_only |
+| `bookstack_pages_update` | Replace page content and move between containers | id (required), name, html/markdown, book_id, chapter_id, tags, priority |
+| `bookstack_pages_edit` | Change parts of a page by literal find-and-replace | id (required), edits (required), dry_run, expected_updated_at, allow_shrink |
+| `bookstack_pages_append` | Add content at a page or section boundary | id (required), content (required), position, section, separator, dry_run, expected_updated_at |
+| `bookstack_pages_outline` | Heading structure with offsets and section sizes | id (required) |
 | `bookstack_pages_delete` | Delete page (moves to recycle bin) | id (required) |
 | `bookstack_pages_export` | Export page in various formats | id (required), format (html/pdf/plaintext/markdown) |
 
@@ -67,6 +70,42 @@ per-category counts add up to the 56 tools the server registers at boot (it logs
 - Page hierarchy and ordering
 - Draft and template pages
 - Content migration between books/chapters
+
+#### Partial editing
+
+The BookStack API offers only full replacement — `PUT /api/pages/{id}` takes a complete
+`html` or `markdown` body, and there is no PATCH. Changing one paragraph of a long page
+therefore meant reading all of it, reproducing it verbatim with the change applied, and
+sending it all back: the content crosses the model twice, and the whole page rides on it
+being copied byte-perfectly. `bookstack_pages_edit`, `bookstack_pages_append` and
+`bookstack_pages_outline` run that read-modify-write cycle inside the server, so a caller
+sends only the fragment it wants changed.
+
+Two invariants hold for anything touching page content (`src/utils/page-content.ts`):
+
+- **Markdown pages** are patched and written through `markdown`. Writing `html` to one
+  switches the page's editor type, which the API gives no way to undo.
+- **Every other page** is patched against `raw_html`, the stored source — never against
+  `html`, the rendered output. Patching the rendered output would write back expanded
+  page-include tags and destroy the includes permanently.
+
+The guards, and why each exists:
+
+| Guard | Behaviour |
+|-------|-----------|
+| Uniqueness | `old_string` must match exactly once, or the edit is refused. The error carries the first few ambiguous matches with context. `replace_all` is the explicit opt-in. |
+| Whitespace diagnostics | When an anchor is not found, the error reports the same text found with different whitespace — the most common near-miss — so the caller can retry with the real bytes. |
+| `dry_run` | Applies the edits in memory and reports what would change. Nothing is sent to BookStack. |
+| `expected_updated_at` | Best-effort stale-page preflight against `updated_at`. It catches a page changed before the server reads it; BookStack has no atomic version condition, so it cannot prevent a later racing write. |
+| Shrink guard | A result smaller than half the original is refused unless `allow_shrink` is set, so an anchor that accidentally swallows most of the document cannot be applied. |
+| Post-write verification | The page is re-read and the written fragments are looked for in normalised text — BookStack rewrites stored HTML on save (heading anchors, injected `id` attributes), so a byte comparison would report every success as a failure. A fragment that cannot be found comes back as `verified: false` rather than an error: the write did happen. |
+
+Every write creates a BookStack revision, so an applied edit can be rolled back in the UI.
+No response from these tools contains page content, which is what keeps it out of the model.
+
+**Recommended flow for a large page**: `bookstack_pages_outline` to see the structure →
+`bookstack_pages_read` with `grep` to get an exact anchor → `bookstack_pages_edit` with
+`dry_run: true` to confirm it resolves → the same call with `expected_updated_at` to apply it.
 
 ### 3. Chapters Management (6 tools)
 **Category**: `chapters`  
@@ -540,6 +579,6 @@ The modular architecture allows for easy extension:
 
 ## Conclusion
 
-The BookStack MCP Server is a production-ready implementation providing LLMs with access to the supported subset of BookStack's API. With 56 tools across 13 categories, 11 resources, robust error handling, strict validation, and extensive documentation, it enables sophisticated knowledge management workflows while maintaining security and reliability.
+The BookStack MCP Server is a production-ready implementation providing LLMs with access to the supported subset of BookStack's API. With 59 tools across 13 categories, 11 resources, robust error handling, strict validation, and extensive documentation, it enables sophisticated knowledge management workflows while maintaining security and reliability.
 
 The consistent patterns, extensive examples, and self-documenting capabilities make it easy for LLMs to understand and effectively utilize the full power of the BookStack platform through the MCP protocol.

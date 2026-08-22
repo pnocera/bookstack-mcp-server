@@ -128,17 +128,27 @@ const RULES: Record<string, IntegerRule> = {
   'bookstack_images_update.id': 'entity-id',
 
   // --- Pages ---
+  'bookstack_pages_append.id': 'entity-id',
   'bookstack_pages_create.book_id': 'entity-id',
   'bookstack_pages_create.chapter_id': 'entity-id',
   'bookstack_pages_create.priority': 'unbounded',
   'bookstack_pages_delete.id': 'entity-id',
+  'bookstack_pages_edit.id': 'entity-id',
   'bookstack_pages_export.id': 'entity-id',
   'bookstack_pages_list.count': 'positive-count',
   'bookstack_pages_list.filter.book_id': 'entity-id',
   'bookstack_pages_list.filter.chapter_id': 'entity-id',
   'bookstack_pages_list.filter.created_by': 'entity-id',
   'bookstack_pages_list.offset': 'non-negative',
+  'bookstack_pages_outline.id': 'entity-id',
+  // The narrowing options on a read. `context`, `length` and `max_matches` are window sizes:
+  // a window of nothing is not a request worth making, so they carry `minimum: 1` like a
+  // listing's `count`. `offset` is a position, where 0 is the start of the page.
+  'bookstack_pages_read.context': 'positive-count',
   'bookstack_pages_read.id': 'entity-id',
+  'bookstack_pages_read.length': 'positive-count',
+  'bookstack_pages_read.max_matches': 'positive-count',
+  'bookstack_pages_read.offset': 'non-negative',
   'bookstack_pages_update.book_id': 'entity-id',
   // There is no value meaning "no chapter": `pageUpdate.chapter_id` is `entityId`, so 0 is
   // rejected rather than read as "detach". Moving a page to its book root is `book_id` alone.
@@ -226,6 +236,11 @@ const TOOL_BASES: Record<string, Record<string, unknown>> = {
   bookstack_images_list: { count: 20, offset: 0, filter: { uploaded_to: 1 } },
   bookstack_images_read: { id: 1 },
   bookstack_images_update: { id: 1, name: 'Probe' },
+  // The partial-edit tools reach the client on their FIRST call, `getPage`, before they can
+  // apply anything - which is what this harness measures. So a base only has to be
+  // well-formed enough to get past validation; the recording client answers `{}` and the edit
+  // then fails on an empty page, after the call that counts has already been made.
+  bookstack_pages_append: { id: 1, content: '<p>x</p>' },
   bookstack_pages_create: {
     name: 'Probe',
     book_id: 1,
@@ -234,12 +249,14 @@ const TOOL_BASES: Record<string, Record<string, unknown>> = {
     priority: 1,
   },
   bookstack_pages_delete: { id: 1 },
+  bookstack_pages_edit: { id: 1, edits: [{ old_string: 'x', new_string: 'y' }] },
   bookstack_pages_export: { id: 1, format: 'pdf' },
   bookstack_pages_list: {
     count: 20,
     offset: 0,
     filter: { book_id: 1, chapter_id: 1, created_by: 1 },
   },
+  bookstack_pages_outline: { id: 1 },
   bookstack_pages_read: { id: 1 },
   bookstack_pages_update: { id: 1, book_id: 1, chapter_id: 1, priority: 1 },
   bookstack_permissions_read: { content_type: 'book', content_id: 1 },

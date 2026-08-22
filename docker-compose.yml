@@ -50,7 +50,7 @@ services:
       start_period: 30s
 
   bookstack:
-    # Pinned, not :latest. The tool contract in this repo (56 tools, field shapes,
+    # Pinned, not :latest. The tool contract in this repo (59 tools, field shapes,
     # error codes) was verified against BookStack 26.05.2; a floating tag silently
     # re-points at a future release and turns a BookStack change into a mystery
     # failure in this suite. Currently resolves to v26.05.2-ls274.
@@ -80,7 +80,7 @@ services:
       DB_USERNAME: bookstack
       DB_PASSWORD: bookstack_secret
       # BookStack throttles its REST API per user (default 180/min). The
-      # integration suites drive all 56 tools and share one admin token, so the
+      # integration suites drive all 59 tools and share one admin token, so the
       # default becomes the bottleneck. This is a throwaway test instance, so
       # raise it. NOTE: real deployments keep the 180 default — that is why the
       # client retries on 429 and the test harness rides out throttling.
@@ -105,7 +105,7 @@ services:
       BOOKSTACK_API_TOKEN: ${BOOKSTACK_API_TOKEN:-}
       # INBOUND authentication for POST /message - unrelated to the token above,
       # and required: the container refuses to start without it, because
-      # /message dispatches all 56 tools (permanent-delete, users, roles,
+      # /message dispatches all 59 tools (permanent-delete, users, roles,
       # permissions) using BOOKSTACK_API_TOKEN. Generate with `openssl rand -hex 32`.
       MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:-}
       SERVER_PORT: "3000"
