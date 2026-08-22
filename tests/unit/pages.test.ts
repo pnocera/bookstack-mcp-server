@@ -372,6 +372,34 @@ describe('PageTools partial editing', () => {
       expect(result.unverified_fragment_count).toBe(1);
     });
 
+    it('does not claim a shrinking replacement was verified when the old anchor remains', async () => {
+      mockClient.getPage.mockResolvedValueOnce(page()).mockResolvedValueOnce(page());
+      mockClient.updatePage.mockResolvedValue(page());
+
+      const result = await call<WriteResult>('bookstack_pages_edit', {
+        id: PAGE_ID,
+        edits: [{ old_string: 'Second paragraph', new_string: 'Second' }],
+      });
+
+      expect(result.written).toBe(true);
+      expect(result.verified).toBe(false);
+      expect(result.unverified_fragment_count).toBe(1);
+    });
+
+    it('does not claim a markup-only replacement was verified when BookStack drops it', async () => {
+      mockClient.getPage.mockResolvedValueOnce(page()).mockResolvedValueOnce(page());
+      mockClient.updatePage.mockResolvedValue(page());
+
+      const result = await call<WriteResult>('bookstack_pages_edit', {
+        id: PAGE_ID,
+        edits: [{ old_string: 'Second paragraph', new_string: '<hr>' }],
+      });
+
+      expect(result.written).toBe(true);
+      expect(result.verified).toBe(false);
+      expect(result.unverified_fragment_count).toBe(1);
+    });
+
     it('rejects an empty edit list at the schema boundary', async () => {
       await expect(
         tool('bookstack_pages_edit').handler({ id: PAGE_ID, edits: [] })

@@ -79,7 +79,7 @@ export class PageStaleError extends Error {
 const CONTEXT_RADIUS = 120;
 const MAX_DIAGNOSTIC_LENGTH = 300;
 
-/** Escape literal anchor text for the whitespace-tolerant diagnostic only. */
+/** Escape literal text for a regular expression that must retain literal semantics. */
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -331,32 +331,25 @@ export function grepContent(
     throw new PageContentError('Search text must be non-empty');
   }
 
-  // This is intentionally literal search rather than caller-supplied RegExp. Apart from
-  // catastrophic backtracking, a regex match can span an entire large page and defeat the
-  // narrow-read contract even when context/maxMatches are bounded.
-  const haystack = caseInsensitive ? source.toLowerCase() : source;
-  const needle = caseInsensitive ? query.toLowerCase() : query;
+  // The caller controls only literal text: escaping it before compiling preserves literal
+  // semantics and prevents backtracking or a whole-page match. RegExp also returns offsets in
+  // the original source, unlike lowercasing the full source (which can change its UTF-16 length).
+  const regex = new RegExp(escapeRegExp(query), caseInsensitive ? 'gi' : 'g');
   const matches: GrepMatch[] = [];
   let total = 0;
-  let searchFrom = 0;
 
   // `total` counts EVERY match while only `maxMatches` are collected: a truncated result that
   // under-reported the total would read as "this anchor is unique" and a caller would edit on
   // that basis.
-  while (searchFrom <= haystack.length) {
-    const offset = haystack.indexOf(needle, searchFrom);
-    if (offset === -1) {
-      break;
-    }
+  for (const match of source.matchAll(regex)) {
     total += 1;
     if (matches.length < maxMatches) {
       matches.push({
-        offset,
-        match: source.slice(offset, offset + query.length),
-        context: contextAround(source, offset, contextChars),
+        offset: match.index,
+        match: match[0],
+        context: contextAround(source, match.index, contextChars),
       });
     }
-    searchFrom = offset + query.length;
   }
 
   return { matches, total, truncated: total > matches.length };

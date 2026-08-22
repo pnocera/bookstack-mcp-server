@@ -265,6 +265,19 @@ describe('grepContent', () => {
     expect(grepContent(source, 'line', { caseInsensitive: false }).total).toBe(0);
   });
 
+  it('keeps offsets and excerpts aligned when case folding expands an earlier character', () => {
+    const unicodeSource = 'İretention period';
+    const result = grepContent(unicodeSource, 'retention period');
+
+    expect(result.matches).toEqual([
+      {
+        offset: 1,
+        match: 'retention period',
+        context: unicodeSource,
+      },
+    ]);
+  });
+
   it('treats regex syntax literally so it cannot return the whole page as one match', () => {
     const wholePagePattern = '[\\s\\S]*';
 

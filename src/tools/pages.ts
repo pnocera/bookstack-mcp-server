@@ -804,7 +804,16 @@ export class PageTools {
               .filter((edit) => edit.new_string.length > 0)
               .map((edit) => edit.new_string),
             mustNotContain: options.edits
-              .filter((edit) => edit.new_string.length === 0)
+              // When a replacement is already present in the original source, finding it after
+              // the write does not prove this edit landed. In that case also require the old
+              // anchor's absence, provided a later edit did not deliberately restore it.
+              .filter(
+                (edit) =>
+                  !result.includes(edit.old_string) &&
+                  (edit.new_string.length === 0 ||
+                    (normalizeForComparison(edit.new_string, source.writeField).length > 0 &&
+                      containsNormalized(source.source, edit.new_string, source.writeField)))
+              )
               .map((edit) => edit.old_string),
           })),
         };
@@ -1080,9 +1089,13 @@ export class PageTools {
 
     const written = await this.client.getPage(page.id);
     const writtenSource = selectSource(written);
-    const missing = verification.mustContain.filter(
-      (fragment) => !containsNormalized(writtenSource.source, fragment, writtenSource.writeField)
-    );
+    const missing = verification.mustContain.filter((fragment) => {
+      const normalized = normalizeForComparison(fragment, writtenSource.writeField);
+      return (
+        normalized.length === 0 ||
+        !containsNormalized(writtenSource.source, fragment, writtenSource.writeField)
+      );
+    });
     // An empty replacement deletes its old anchor. An empty normalised anchor cannot be
     // meaningfully searched for, so treat it as unverified rather than claiming success.
     const stillPresent = verification.mustNotContain.filter((fragment) => {
