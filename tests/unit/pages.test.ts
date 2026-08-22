@@ -436,6 +436,40 @@ describe('PageTools partial editing', () => {
       expect(result.unverified_fragment_count).toBe(0);
     });
 
+    it('does not claim a chained edit was verified when the write is lost', async () => {
+      mockClient.getPage.mockResolvedValueOnce(page()).mockResolvedValueOnce(page());
+      mockClient.updatePage.mockResolvedValue(page());
+
+      const result = await call<WriteResult>('bookstack_pages_edit', {
+        id: PAGE_ID,
+        edits: [
+          { old_string: 'Second paragraph', new_string: 'Zweiter Absatz' },
+          { old_string: 'Zweiter Absatz', new_string: '' },
+        ],
+      });
+
+      expect(result.written).toBe(true);
+      expect(result.verified).toBe(false);
+      expect(result.unverified_fragment_count).toBe(1);
+    });
+
+    it('does not claim a markup-only replacement was verified when it already exists', async () => {
+      const stored = '<p>First paragraph</p><hr><p>Second paragraph</p>';
+      mockClient.getPage
+        .mockResolvedValueOnce(page({ raw_html: stored }))
+        .mockResolvedValueOnce(page({ raw_html: stored }));
+      mockClient.updatePage.mockResolvedValue(page());
+
+      const result = await call<WriteResult>('bookstack_pages_edit', {
+        id: PAGE_ID,
+        edits: [{ old_string: 'Second paragraph', new_string: '<hr>' }],
+      });
+
+      expect(result.written).toBe(true);
+      expect(result.verified).toBe(false);
+      expect(result.unverified_fragment_count).toBe(1);
+    });
+
     it('rejects an empty edit list at the schema boundary', async () => {
       await expect(
         tool('bookstack_pages_edit').handler({ id: PAGE_ID, edits: [] })

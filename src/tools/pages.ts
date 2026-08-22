@@ -807,16 +807,28 @@ export class PageTools {
               .filter((edit) => edit.new_string.length > 0 && result.includes(edit.new_string))
               .map((edit) => edit.new_string),
             mustNotContain: options.edits
-              // When a replacement is already present in the original source, finding it after
-              // the write does not prove this edit landed. In that case also require the old
-              // anchor's absence, provided a later edit did not deliberately restore it.
-              .filter(
-                (edit) =>
-                  !result.includes(edit.old_string) &&
-                  (edit.new_string.length === 0 ||
-                    (normalizeForComparison(edit.new_string, source.writeField).length > 0 &&
-                      containsNormalized(source.source, edit.new_string, source.writeField)))
-              )
+              .filter((edit) => {
+                if (result.includes(edit.old_string)) {
+                  // A later edit deliberately restored this anchor.
+                  return false;
+                }
+                // When an edit contributes no final fragment to mustContain, the old anchor's
+                // absence is the remaining evidence that it landed. This covers deletions and
+                // replacements subsequently overwritten by a later edit.
+                if (edit.new_string.length === 0 || !result.includes(edit.new_string)) {
+                  return true;
+                }
+                // A replacement already present in the original source cannot prove that this
+                // edit landed, including markup-only fragments omitted by text normalisation.
+                const normalized = normalizeForComparison(edit.new_string, source.writeField);
+                if (normalized.length === 0) {
+                  const collapseWhitespace = (value: string) => value.replace(/\s+/g, ' ').trim();
+                  return collapseWhitespace(source.source).includes(
+                    collapseWhitespace(edit.new_string)
+                  );
+                }
+                return containsNormalized(source.source, edit.new_string, source.writeField);
+              })
               .map((edit) => edit.old_string),
           })),
         };
