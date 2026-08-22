@@ -116,6 +116,8 @@ const PINNED_ENV = [
   'BOOKSTACK_API_TOKEN',
   'LOG_LEVEL',
   'LOG_FORMAT',
+  'VALIDATION_ENABLED',
+  'VALIDATION_STRICT_MODE',
 ] as const;
 
 const savedEnv = new Map<string, string | undefined>();
@@ -141,13 +143,17 @@ interface ToolCallContent {
   type: string;
   text: string;
 }
+interface ValidationErrorData {
+  type: string;
+  validation: Array<{ field: string; message: string }>;
+}
 interface JsonRpcReply {
   result?: {
     tools?: ToolListEntry[];
     resources?: ResourceListEntry[];
     content?: ToolCallContent[];
   };
-  error?: { code: number; message: string };
+  error?: { code: number; message: string; data?: ValidationErrorData };
 }
 
 /** The JSON a books list handler returns, once unwrapped from MCP's text content. */
@@ -166,6 +172,10 @@ beforeAll(() => {
   process.env.BOOKSTACK_API_TOKEN = stub.apiToken;
   process.env.LOG_LEVEL = 'error';
   process.env.LOG_FORMAT = 'json';
+  // This suite's malformed-call cases prove the strict boundary. An ambient .env must not
+  // silently turn that boundary into permissive forwarding before the singleton reloads.
+  delete process.env.VALIDATION_ENABLED;
+  delete process.env.VALIDATION_STRICT_MODE;
 
   // reload() rather than getConfig(): another suite may already have populated the
   // singleton, and /message builds its server from whatever the singleton holds.
@@ -1038,6 +1048,33 @@ describe('malformed tools/call arguments are refused before BookStack is contact
     // any schema to contradict it - "takes no parameters" is only true if an empty strict
     // object is actually applied.
     expect(await runtimeAccepts(url, 'bookstack_system_info', { book_id: 5 })).toBe(false);
+    expect(stub.requests).toHaveLength(0);
+  });
+
+  it('returns an unknown argument in JSON-RPC validation data without contacting BookStack', async () => {
+    // Issue #21: a client must receive the reason for a strict rejection, rather than only a
+    // generic tool-failed banner. This is deliberately a wire assertion: a unit test of
+    // ErrorHandler would not prove the Streamable HTTP transport preserves McpError.data.
+    const url = await startApp();
+
+    const { status, reply } = await rpc(url, 'tools/call', {
+      name: 'bookstack_pages_create',
+      arguments: {
+        chapter_id: 3,
+        name: 'Test page',
+        markdown: 'test',
+        description: 'not a page-create argument',
+      },
+    });
+
+    expect(status).toBe(200);
+    expect(reply.result).toBeUndefined();
+    expect(reply.error?.code).toBe(-32602);
+    expect(reply.error?.message).toContain('Validation failed');
+    expect(reply.error?.data).toEqual({
+      type: 'validation_error',
+      validation: [{ field: '', message: 'Unrecognized key: "description"' }],
+    });
     expect(stub.requests).toHaveLength(0);
   });
 
