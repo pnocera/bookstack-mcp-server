@@ -343,7 +343,7 @@ describe.skipIf(!runIntegration)('bookstack_pages_* tools (live BookStack)', () 
     await cleanup.run(harness);
   }, 180_000);
 
-  it('registers all six page tools', () => {
+  it('registers the six original page tools plus the three partial-editing tools', () => {
     const names = pageTools.getTools().map((tool) => tool.name);
 
     expect(names).toEqual([
@@ -351,6 +351,9 @@ describe.skipIf(!runIntegration)('bookstack_pages_* tools (live BookStack)', () 
       'bookstack_pages_create',
       'bookstack_pages_read',
       'bookstack_pages_update',
+      'bookstack_pages_edit',
+      'bookstack_pages_append',
+      'bookstack_pages_outline',
       'bookstack_pages_delete',
       'bookstack_pages_export',
     ]);

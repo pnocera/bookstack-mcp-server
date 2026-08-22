@@ -294,6 +294,7 @@ export class ServerInfoTools {
             type: 'string',
             enum: [
               'create_documentation',
+              'edit_part_of_large_page',
               'organize_content',
               'user_management',
               'search_content',
