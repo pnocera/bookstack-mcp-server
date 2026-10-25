@@ -96,13 +96,18 @@ export function selectSource(page: PageWithContent): PageSource {
   const editor = page.editor || '';
   const rawHtml = typeof page.raw_html === 'string' ? page.raw_html : '';
 
-  if (editor === 'markdown' && typeof page.markdown === 'string') {
-    // Stay on the markdown path even when the page is still empty, otherwise
-    // the first append to a fresh markdown page would switch its editor type.
-    // Only an inconsistent page (no markdown but stored HTML) falls back.
-    if (page.markdown.trim().length > 0 || rawHtml.trim().length === 0) {
-      return { writeField: 'markdown', source: page.markdown, editor };
-    }
+  const markdown = typeof page.markdown === 'string' ? page.markdown : '';
+
+  // BookStack clears `markdown` whenever HTML is saved, so a non-empty one is the
+  // page's source even when `editor` says otherwise: API-created pages report "wysiwyg".
+  if (markdown.trim().length > 0) {
+    return { writeField: 'markdown', source: markdown, editor };
+  }
+
+  // Stay on the markdown path for an empty markdown page, otherwise the first
+  // append to a fresh one would switch its editor type.
+  if (editor === 'markdown' && typeof page.markdown === 'string' && rawHtml.trim().length === 0) {
+    return { writeField: 'markdown', source: page.markdown, editor };
   }
 
   const source = rawHtml.length > 0 ? rawHtml : page.html || '';

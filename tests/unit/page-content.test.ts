@@ -85,6 +85,15 @@ describe('selectSource', () => {
     expect(result.source).toBe('# Heading\n\nBody');
   });
 
+  it('writes markdown when the page holds markdown under a wysiwyg editor label', () => {
+    // Pages created through the API with `markdown` report editor "wysiwyg". Writing html
+    // there would wipe the markdown source that other API clients read back.
+    const result = selectSource({ ...basePage, editor: 'wysiwyg', markdown: '# Heading' });
+
+    expect(result.writeField).toBe('markdown');
+    expect(result.source).toBe('# Heading');
+  });
+
   it('falls back to the rendered html when raw_html is absent', () => {
     const { raw_html: _omitted, ...withoutRaw } = basePage;
     const result = selectSource(withoutRaw as PageWithContent);
