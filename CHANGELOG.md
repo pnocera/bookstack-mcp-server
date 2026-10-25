@@ -5,6 +5,13 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.1](https://github.com/pnocera/bookstack-mcp-server/compare/v2.1.0...v2.1.1) (2026-10-25)
+
+
+### Fixed
+
+* **pages:** edit the stored markdown even when editor says wysiwyg ([#26](https://github.com/pnocera/bookstack-mcp-server/issues/26)) ([01d438d](https://github.com/pnocera/bookstack-mcp-server/commit/01d438d922c038ad8a72b4f04dcd721365a6429a))
+
 ## [2.1.0](https://github.com/pnocera/bookstack-mcp-server/compare/v2.0.0...v2.1.0) (2026-08-22)
 
 
