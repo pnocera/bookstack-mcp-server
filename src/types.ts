@@ -757,6 +757,15 @@ export interface SearchParams {
   count?: number;
 }
 
+/**
+ * A search confined to one book or chapter. `id` names the container and travels in the
+ * URL, not the query string; everything else matches SearchParams because the scoped
+ * endpoints validate `query`, `page` and `count` with the same rules as `/search`.
+ */
+export interface ScopedSearchParams extends SearchParams {
+  id: number;
+}
+
 export interface ImageGalleryListParams extends PaginationParams {
   filter?: {
     name?: string;
@@ -1465,6 +1474,8 @@ export interface BookStackAPIClient {
 
   // Search
   search(params: SearchParams): Promise<ListResponse<SearchResult>>;
+  searchBook(params: ScopedSearchParams): Promise<ListResponse<SearchResult>>;
+  searchChapter(params: ScopedSearchParams): Promise<ListResponse<SearchResult>>;
 
   // Recycle Bin
   listRecycleBin(params?: PaginationParams): Promise<ListResponse<RecycleBinItem>>;

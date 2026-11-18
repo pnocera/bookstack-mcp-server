@@ -51,6 +51,7 @@ import type {
   RoleListItem,
   RolesListParams,
   RoleWithPermissions,
+  ScopedSearchParams,
   SearchParams,
   SearchResult,
   ShelvesListParams,
@@ -1233,6 +1234,27 @@ export class BookStackClient implements BookStackAPIClient {
     return this.request<ListResponse<SearchResult>>({
       method: 'GET',
       url: '/search',
+      params,
+    });
+  }
+
+  // `id` identifies the container and belongs in the path; sending it on as a query
+  // parameter would be ignored upstream, which is the quiet kind of wrong.
+  async searchBook({ id, ...params }: ScopedSearchParams): Promise<ListResponse<SearchResult>> {
+    return this.request<ListResponse<SearchResult>>({
+      method: 'GET',
+      url: `/search/book/${id}`,
+      params,
+    });
+  }
+
+  async searchChapter({
+    id,
+    ...params
+  }: ScopedSearchParams): Promise<ListResponse<SearchResult>> {
+    return this.request<ListResponse<SearchResult>>({
+      method: 'GET',
+      url: `/search/chapter/${id}`,
       params,
     });
   }

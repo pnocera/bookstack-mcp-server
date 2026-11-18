@@ -178,6 +178,12 @@ const RULES: Record<string, IntegerRule> = {
   // --- Search ---
   'bookstack_search.count': 'positive-count',
   'bookstack_search.page': 'positive-count',
+  'bookstack_search_book.count': 'positive-count',
+  'bookstack_search_book.id': 'entity-id',
+  'bookstack_search_book.page': 'positive-count',
+  'bookstack_search_chapter.count': 'positive-count',
+  'bookstack_search_chapter.id': 'entity-id',
+  'bookstack_search_chapter.page': 'positive-count',
 
   // --- Shelves ---
   'bookstack_shelves_create.books[]': 'entity-id',
@@ -274,6 +280,8 @@ const TOOL_BASES: Record<string, Record<string, unknown>> = {
   bookstack_roles_read: { id: 1 },
   bookstack_roles_update: { id: 1 },
   bookstack_search: { query: 'probe', page: 1, count: 20 },
+  bookstack_search_book: { id: 1, query: 'probe', page: 1, count: 20 },
+  bookstack_search_chapter: { id: 1, query: 'probe', page: 1, count: 20 },
   bookstack_shelves_create: { name: 'Probe', books: [1] },
   bookstack_shelves_delete: { id: 1 },
   bookstack_shelves_list: { count: 20, offset: 0, filter: { created_by: 1 } },

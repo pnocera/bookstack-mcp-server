@@ -851,6 +851,26 @@ const ValidationSchemas = {
     count: z.number().int().min(1).max(100).default(20),
   }),
 
+  // The scoped endpoints carry the SAME rules as /search upstream
+  // (SearchApiController::$rules declares 'book' and 'chapter' identically to 'all'), so
+  // these differ from `search` only by the container id. `id` is an entityId rather than a
+  // bare integer because the route casts with `intval` and does not validate: a 0 or a
+  // negative reaches SearchRunner as a book that cannot exist and answers 200 with an empty
+  // set, which reads as "nothing matched" rather than "wrong id".
+  searchBook: z.strictObject({
+    id: entityId,
+    query: z.string().min(1).regex(NONBLANK, NONBLANK_MESSAGE),
+    page: z.number().int().min(1).default(1),
+    count: z.number().int().min(1).max(100).default(20),
+  }),
+
+  searchChapter: z.strictObject({
+    id: entityId,
+    query: z.string().min(1).regex(NONBLANK, NONBLANK_MESSAGE),
+    page: z.number().int().min(1).default(1),
+    count: z.number().int().min(1).max(100).default(20),
+  }),
+
   // Audit Log
   // Only fields BookStack exposes for this endpoint can be filtered on; an
   // unknown key would be dropped upstream and quietly return an unfiltered log.

@@ -78,6 +78,8 @@ const EXPECTED_TOOLS = [
   'bookstack_roles_read',
   'bookstack_roles_update',
   'bookstack_search',
+  'bookstack_search_book',
+  'bookstack_search_chapter',
   'bookstack_server_info',
   'bookstack_shelves_create',
   'bookstack_shelves_delete',
@@ -351,9 +353,9 @@ describe('tools/list over HTTP', () => {
 
     expect(status).toBe(200);
     const names = (reply.result?.tools ?? []).map((tool) => tool.name).sort();
-    // Count first: a bare length mismatch reports far more clearly than a 59-entry diff.
+    // Count first: a bare length mismatch reports far more clearly than a 61-entry diff.
     expect(names).toHaveLength(EXPECTED_TOOLS.length);
-    expect(names).toHaveLength(59);
+    expect(names).toHaveLength(61);
     expect(names).toEqual([...EXPECTED_TOOLS]);
   });
 

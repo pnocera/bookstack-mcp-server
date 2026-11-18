@@ -1,16 +1,16 @@
 # BookStack MCP Server Tools Overview
 
-## All 59 Tools Across 13 Categories
+## All 61 Tools Across 13 Categories
 
 This document provides an overview of every tool implemented in the BookStack MCP server, its capabilities, usage patterns, and implementation details.
 
 ## Executive Summary
 
-The BookStack MCP Server provides **59 tools** (and **11 resources**) organized into **13 categories**, implementing the supported subset of the BookStack knowledge management API. Each tool follows consistent patterns for validation, error handling, and logging.
+The BookStack MCP Server provides **61 tools** (and **11 resources**) organized into **13 categories**, implementing the supported subset of the BookStack knowledge management API. Each tool follows consistent patterns for validation, error handling, and logging.
 
 The categories below are the ones returned by `bookstack_tool_categories`, and the
-per-category counts add up to the 59 tools the server registers at boot (it logs
-`Registered 59 tools` / `Registered 11 resources` on startup):
+per-category counts add up to the 61 tools the server registers at boot (it logs
+`Registered 61 tools` / `Registered 11 resources` on startup):
 
 | Section | Category | Tools |
 |---------|----------|-------|
@@ -22,12 +22,12 @@ per-category counts add up to the 59 tools the server registers at boot (it logs
 | 6 | `roles` | 5 |
 | 7 | `attachments` | 5 |
 | 8 | `images` | 5 |
-| 9 | `search` | 1 |
+| 9 | `search` | 3 |
 | 10 | `recyclebin` | 3 |
 | 11 | `permissions` | 2 |
 | 12 | `system` | 2 |
 | 13 | `meta` | 5 |
-| | **Total** | **56** |
+| | **Total** | **58** |
 
 ## Tool Categories Overview
 
@@ -222,6 +222,8 @@ No response from these tools contains page content, which is what keeps it out o
 | Tool Name | Description | Key Parameters |
 |-----------|-------------|----------------|
 | `bookstack_search` | Search across shelves, books, chapters and pages | query (required), page (default 1), count (1-100, default 20) |
+| `bookstack_search_book` | Search pages and chapters inside ONE book | id (required), query (required), page (default 1), count (1-100, default 20) |
+| `bookstack_search_chapter` | Search pages inside ONE chapter | id (required), query (required), page (default 1), count (1-100, default 20) |
 
 **Search syntax** (BookStack's own; verified against v26.05.2):
 
@@ -579,6 +581,6 @@ The modular architecture allows for easy extension:
 
 ## Conclusion
 
-The BookStack MCP Server is a production-ready implementation providing LLMs with access to the supported subset of BookStack's API. With 59 tools across 13 categories, 11 resources, robust error handling, strict validation, and extensive documentation, it enables sophisticated knowledge management workflows while maintaining security and reliability.
+The BookStack MCP Server is a production-ready implementation providing LLMs with access to the supported subset of BookStack's API. With 61 tools across 13 categories, 11 resources, robust error handling, strict validation, and extensive documentation, it enables sophisticated knowledge management workflows while maintaining security and reliability.
 
 The consistent patterns, extensive examples, and self-documenting capabilities make it easy for LLMs to understand and effectively utilize the full power of the BookStack platform through the MCP protocol.

@@ -190,7 +190,7 @@ describe.skipIf(!runIntegration)('Search tool against live BookStack', () => {
       Logger.getInstance()
     ).getTools();
 
-    expect(tools).toHaveLength(1);
+    expect(tools).toHaveLength(3);
     expect(tools[0].name).toBe('bookstack_search');
   });
 
