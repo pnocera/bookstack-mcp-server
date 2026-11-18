@@ -222,6 +222,8 @@ No response from these tools contains page content, which is what keeps it out o
 | Tool Name | Description | Key Parameters |
 |-----------|-------------|----------------|
 | `bookstack_search` | Search across shelves, books, chapters and pages | query (required), page (default 1), count (1-100, default 20) |
+| `bookstack_search_book` | Search pages and chapters inside ONE book | id (required), query (required), page (default 1), count (1-100, default 20) |
+| `bookstack_search_chapter` | Search pages inside ONE chapter | id (required), query (required), page (default 1), count (1-100, default 20) |
 
 **Search syntax** (BookStack's own; verified against v26.05.2):
 

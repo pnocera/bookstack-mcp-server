@@ -78,6 +78,8 @@ const EXPECTED_TOOLS = [
   'bookstack_roles_read',
   'bookstack_roles_update',
   'bookstack_search',
+  'bookstack_search_book',
+  'bookstack_search_chapter',
   'bookstack_server_info',
   'bookstack_shelves_create',
   'bookstack_shelves_delete',

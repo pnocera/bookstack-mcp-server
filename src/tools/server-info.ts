@@ -521,9 +521,14 @@ export class ServerInfoTools {
       },
       {
         name: 'search',
-        description: 'Search across all content types',
-        tools: ['bookstack_search'],
-        use_cases: ['Find existing content', 'Locate information quickly', 'Content discovery'],
+        description: 'Search across all content types, or within one book or chapter',
+        tools: ['bookstack_search', 'bookstack_search_book', 'bookstack_search_chapter'],
+        use_cases: [
+          'Find existing content',
+          'Locate information quickly',
+          'Content discovery',
+          'Search inside a known book or chapter',
+        ],
       },
       {
         name: 'users',

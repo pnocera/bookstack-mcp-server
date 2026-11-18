@@ -1,5 +1,11 @@
 import type { BookStackClient } from '../api/client';
-import { type MCPTool, NONBLANK_PATTERN, type SearchParams, withClosedSchemas } from '../types';
+import {
+  type MCPTool,
+  NONBLANK_PATTERN,
+  type ScopedSearchParams,
+  type SearchParams,
+  withClosedSchemas,
+} from '../types';
 import type { Logger } from '../utils/logger';
 import type { ValidationHandler } from '../validation/validator';
 
@@ -19,7 +25,11 @@ export class SearchTools {
    * Get all search tools
    */
   getTools(): MCPTool[] {
-    return withClosedSchemas([this.createSearchTool()]);
+    return withClosedSchemas([
+      this.createSearchTool(),
+      this.createSearchBookTool(),
+      this.createSearchChapterTool(),
+    ]);
   }
 
   /**
@@ -114,6 +124,166 @@ export class SearchTools {
           count: validatedParams.count,
         });
         return await this.client.search(validatedParams);
+      },
+    };
+  }
+
+  /**
+   * Book-scoped search.
+   *
+   * Deliberately a separate tool rather than an optional `book_id` on bookstack_search.
+   * The two scopes are mutually exclusive, which in one schema means a top-level `oneOf`
+   * or `allOf` - and several MCP clients reject a tool schema carrying a top-level
+   * combinator outright, taking the whole tool list down with it rather than just the call.
+   * One required id per tool needs no combinator at all.
+   */
+  private createSearchBookTool(): MCPTool {
+    return {
+      name: 'bookstack_search_book',
+      description:
+        'Search within ONE book, by its id. Returns the pages and chapters inside that book which match the query, in the same shape as bookstack_search. Use this instead of bookstack_search whenever the search belongs to a known book: an unscoped search ranges over the whole instance, so on a large wiki the wanted page competes with every other book.',
+      inputSchema: {
+        type: 'object',
+        required: ['id', 'query'],
+        properties: {
+          id: {
+            type: 'integer',
+            minimum: 1,
+            description: 'Id of the book to search inside. From bookstack_books_list or a search result.',
+          },
+          query: {
+            type: 'string',
+            minLength: 1,
+            pattern: NONBLANK_PATTERN,
+            description:
+              'Search query string, same syntax as bookstack_search. Must contain a non-whitespace character. A {type:...} term can NARROW what comes back but cannot widen it past this book.',
+          },
+          page: {
+            type: 'integer',
+            minimum: 1,
+            default: 1,
+            description: 'Page number for pagination.',
+          },
+          count: {
+            type: 'integer',
+            minimum: 1,
+            maximum: 100,
+            default: 20,
+            description: 'Results per page.',
+          },
+        },
+      },
+      examples: [
+        {
+          description: 'Find the onboarding page inside one book',
+          input: { id: 12, query: 'onboarding' },
+          expected_output: 'Matching pages and chapters from book 12 only',
+          use_case: 'Looking something up in a known handbook',
+        },
+      ],
+      usage_patterns: [
+        'Resolve the book first (bookstack_books_list or a bookstack_search with {type:book}), then search inside it.',
+        'Results cover pages and chapters within the book. Shelves and the book record itself are out of scope by construction.',
+      ],
+      related_tools: ['bookstack_search', 'bookstack_search_chapter', 'bookstack_books_list'],
+      error_codes: [
+        {
+          code: 'VALIDATION_ERROR',
+          description:
+            'Missing or whitespace-only query, or an id below 1. BookStack casts the id with intval and does not validate it, so 0 would answer 200 with an empty set - indistinguishable from a book that simply holds no match.',
+          recovery_suggestion: 'Pass a positive book id and a query with at least one non-whitespace character',
+        },
+      ],
+      handler: async (params: unknown) => {
+        const validatedParams = this.validator.validateParams<ScopedSearchParams>(
+          params,
+          'searchBook'
+        );
+        // The id and the SIZE of the query, never the query: a search term is routinely a
+        // person's name or a phrase copied out of the document being looked for.
+        this.logger.info('Searching within book', {
+          book_id: validatedParams.id,
+          query_length: validatedParams.query.length,
+          page: validatedParams.page,
+          count: validatedParams.count,
+        });
+        return await this.client.searchBook(validatedParams);
+      },
+    };
+  }
+
+  /**
+   * Chapter-scoped search. Same reasoning as createSearchBookTool.
+   */
+  private createSearchChapterTool(): MCPTool {
+    return {
+      name: 'bookstack_search_chapter',
+      description:
+        'Search within ONE chapter, by its id. Returns the pages inside that chapter which match the query, in the same shape as bookstack_search. Narrower than bookstack_search_book: use it when the chapter is known.',
+      inputSchema: {
+        type: 'object',
+        required: ['id', 'query'],
+        properties: {
+          id: {
+            type: 'integer',
+            minimum: 1,
+            description: 'Id of the chapter to search inside. From bookstack_chapters_list or a search result.',
+          },
+          query: {
+            type: 'string',
+            minLength: 1,
+            pattern: NONBLANK_PATTERN,
+            description:
+              'Search query string, same syntax as bookstack_search. Must contain a non-whitespace character. A {type:...} term can NARROW what comes back but cannot widen it past this chapter.',
+          },
+          page: {
+            type: 'integer',
+            minimum: 1,
+            default: 1,
+            description: 'Page number for pagination.',
+          },
+          count: {
+            type: 'integer',
+            minimum: 1,
+            maximum: 100,
+            default: 20,
+            description: 'Results per page.',
+          },
+        },
+      },
+      examples: [
+        {
+          description: 'Find a step inside one chapter',
+          input: { id: 193, query: 'rollback' },
+          expected_output: 'Matching pages from chapter 193 only',
+          use_case: 'Locating a step in a known runbook chapter',
+        },
+      ],
+      usage_patterns: [
+        'Resolve the chapter first (bookstack_chapters_list or a search result carrying a chapter), then search inside it.',
+        'Results are pages only: a chapter holds no chapters.',
+      ],
+      related_tools: ['bookstack_search', 'bookstack_search_book', 'bookstack_chapters_list'],
+      error_codes: [
+        {
+          code: 'VALIDATION_ERROR',
+          description:
+            'Missing or whitespace-only query, or an id below 1. As with the book endpoint, BookStack does not validate the id, so 0 answers 200 with an empty set.',
+          recovery_suggestion: 'Pass a positive chapter id and a query with at least one non-whitespace character',
+        },
+      ],
+      handler: async (params: unknown) => {
+        const validatedParams = this.validator.validateParams<ScopedSearchParams>(
+          params,
+          'searchChapter'
+        );
+        this.logger.info('Searching within chapter', {
+          chapter_id: validatedParams.id,
+          query_length: validatedParams.query.length,
+          page: validatedParams.page,
+          count: validatedParams.count,
+        });
+        return await this.client.searchChapter(validatedParams);
       },
     };
   }
