@@ -29,7 +29,7 @@ The BookStack MCP Server provides comprehensive access to the BookStack knowledg
 
 ### Key Features
 
-- **API Coverage**: 59 tools and 11 resources across 13 categories, covering the supported subset of the BookStack API (comments, imports, tag listings, image-gallery `data` endpoints and ZIP export are not exposed)
+- **API Coverage**: 61 tools and 11 resources across 13 categories, covering the supported subset of the BookStack API (comments, imports, tag listings, image-gallery `data` endpoints and ZIP export are not exposed)
 - **Type Safety**: Full TypeScript interfaces for all operations
 - **Robust Error Handling**: Comprehensive error mapping and recovery guidance
 - **Rate Limiting**: Token bucket algorithm with configurable limits

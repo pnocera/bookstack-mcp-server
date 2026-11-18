@@ -1,6 +1,6 @@
 # BookStack MCP Server
 
-Connect BookStack to Claude and other AI assistants through the Model Context Protocol (MCP). This server exposes 59 tools and 11 resources covering the supported subset of the BookStack API — books, pages, chapters, shelves, search, users, roles, permissions, attachments, images, the recycle bin, the audit log and system info.
+Connect BookStack to Claude and other AI assistants through the Model Context Protocol (MCP). This server exposes 61 tools and 11 resources covering the supported subset of the BookStack API — books, pages, chapters, shelves, search, users, roles, permissions, attachments, images, the recycle bin, the audit log and system info.
 
 This server supports two transport modes: **Streamable HTTP** (default) and **Stdio**.
 
@@ -13,7 +13,7 @@ This server supports two transport modes: **Streamable HTTP** (default) and **St
 ## ✨ What You Get
 
 - **BookStack Integration** - Access your books, pages, chapters, and content
-- **59 MCP Tools & 11 Resources** - CRUD, search and export across the supported endpoint families
+- **61 MCP Tools & 11 Resources** - CRUD, search and export across the supported endpoint families
 - **Search & Export** - Find content and export in multiple formats
 - **User Management** - Handle users, roles, and permissions
 - **Production Ready** - Rate limiting, validation, error handling, and logging
@@ -44,7 +44,7 @@ bookstack-mcp-server
 
 The two tokens are **not** interchangeable and must not be set to the same value:
 `BOOKSTACK_API_TOKEN` is what the server presents to BookStack; `MCP_AUTH_TOKEN` is
-what callers must present to `POST /message`, which dispatches all 59 tools with the
+what callers must present to `POST /message`, which dispatches all 61 tools with the
 authority of the BookStack account behind `BOOKSTACK_API_TOKEN`. Skip `MCP_AUTH_TOKEN`
 only for [stdio](#-transports), which has no network surface and ignores it.
 
@@ -171,7 +171,7 @@ with the failing check named:
   "status": "unhealthy",
   "checks": [
     { "name": "bookstack_connection", "healthy": false, "message": "BookStack API connection" },
-    { "name": "tools_loaded", "healthy": true, "message": "59 tools loaded" },
+    { "name": "tools_loaded", "healthy": true, "message": "61 tools loaded" },
     { "name": "resources_loaded", "healthy": true, "message": "11 resources loaded" }
   ]
 }
@@ -247,7 +247,7 @@ MCP clients pipe over stdin/stdout. For stdio you also don't need `-p 3000:3000`
 
 ## 🛠️ Available Tools
 
-**59 tools across 13 categories:**
+**61 tools across 13 categories:**
 
 - **📚 Books** (6) - Create, read, update, delete, and export books
 - **📄 Pages** (9) - Manage pages with HTML/Markdown content, including [partial editing](#-partial-page-editing)

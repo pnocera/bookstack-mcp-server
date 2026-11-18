@@ -353,9 +353,9 @@ describe('tools/list over HTTP', () => {
 
     expect(status).toBe(200);
     const names = (reply.result?.tools ?? []).map((tool) => tool.name).sort();
-    // Count first: a bare length mismatch reports far more clearly than a 59-entry diff.
+    // Count first: a bare length mismatch reports far more clearly than a 61-entry diff.
     expect(names).toHaveLength(EXPECTED_TOOLS.length);
-    expect(names).toHaveLength(59);
+    expect(names).toHaveLength(61);
     expect(names).toEqual([...EXPECTED_TOOLS]);
   });
 

@@ -609,7 +609,7 @@ export class ServerInfoTools {
         use_cases: ['Upload images', 'Manage gallery assets'],
       },
       {
-        // Without this entry the categories described 54 of the server's 59 tools:
+        // Without this entry the categories described 54 of the server's 61 tools:
         // the five self-describing tools belonged to no category, so the listing an
         // LLM consults to find out what exists omitted the tools that tell it what
         // exists. They all declare `category: 'meta'` themselves.
